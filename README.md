@@ -14,10 +14,22 @@ A lightweight, apisauce-inspired HTTP client built on native `fetch` API with Ty
 
 ## Installation
 
-Refetch is already part of this project. Simply import it:
+Install via npm:
 
-```typescript
-import { create } from '@/lib/refetch';
+```bash
+npm install @mshindi-labs/refetch
+```
+
+Or with yarn:
+
+```bash
+yarn add @mshindi-labs/refetch
+```
+
+Or with pnpm:
+
+```bash
+pnpm add @mshindi-labs/refetch
 ```
 
 ## Quick Start
@@ -25,7 +37,7 @@ import { create } from '@/lib/refetch';
 ### Basic Usage
 
 ```typescript
-import { create, PROBLEM_CODE } from '@/lib/refetch';
+import { create, PROBLEM_CODE } from '@mshindi-labs/refetch';
 
 // Create an API instance
 const api = create({
@@ -342,7 +354,7 @@ import type {
   ResponseTransform,
   AsyncResponseTransform,
   Monitor,
-} from '@/lib/refetch';
+} from '@mshindi-labs/refetch';
 ```
 
 ## Best Practices
@@ -351,7 +363,7 @@ import type {
 
 ```typescript
 // lib/api.ts
-import { create } from '@/lib/refetch';
+import { create } from '@mshindi-labs/refetch';
 
 export const api = create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
@@ -397,6 +409,79 @@ const response = await api.get<User>('/users/1');
 // response.data is typed as User when ok is true
 ```
 
+## What's New in v2.0.0
+
+### Breaking Changes
+
+**Type Safety Improvements:**
+- All `any` types replaced with `unknown` for better type safety
+- You must now explicitly type your responses or provide type assertions
+
+**Config Protection:**
+- `api.config` is now readonly and returns a copy
+- Use setter methods like `setBaseURL()` instead of direct mutation
+
+### New Features
+
+**Transform & Monitor Management:**
+```typescript
+// Remove specific transforms/monitors
+const transform = (config) => { /* ... */ };
+api.addRequestTransform(transform);
+api.removeRequestTransform(transform);  // NEW
+
+// Clear all transforms/monitors
+api.clearRequestTransforms();  // NEW
+api.clearResponseTransforms();  // NEW
+api.clearMonitors();  // NEW
+```
+
+**Type Guards:**
+```typescript
+import { isOkResponse, isErrorResponse } from '@mshindi-labs/refetch';
+
+const response = await api.get<User>('/users/1');
+
+if (isOkResponse(response)) {
+  // TypeScript knows response.data is User
+  console.log(response.data.name);
+}
+
+if (isErrorResponse(response)) {
+  // TypeScript knows this is an error
+  console.log(response.problem);
+}
+```
+
+**Better Error Messages:**
+- Errors now include HTTP method and full URL
+- Example: `HTTP GET https://api.example.com/users failed with status 404: Not Found`
+
+**Improved URL Handling:**
+- Properly handles absolute URLs
+- Normalizes trailing/leading slashes
+- Better baseURL concatenation
+
+### Migration from v1.x
+
+```typescript
+// v1.x - implicit any types
+const response = await api.get('/users');
+
+// v2.x - explicit typing required
+const response = await api.get<User[]>('/users');
+
+// v1.x - direct config mutation
+api.config.timeout = 5000;
+
+// v2.x - use setter methods
+// (config is now readonly)
+```
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](https://github.com/mshindi-labs/refetch/blob/main/CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
 ## License
 
-Part of the supaestate-app monorepo.
+MIT License - see [LICENSE](https://github.com/mshindi-labs/refetch/blob/main/LICENSE) file for details.
