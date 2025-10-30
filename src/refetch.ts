@@ -21,6 +21,7 @@ import {
   prepareRequestBody,
   shouldHaveBody,
   classifyProblem,
+  headersToObject,
 } from './utils';
 
 /**
@@ -74,10 +75,10 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * Make an HTTP request
    */
-  async function request<T = any>(
+  async function request<T = unknown>(
     method: string,
     url: string,
-    dataOrParams?: any,
+    dataOrParams?: unknown,
     requestConfig: RequestConfig = {},
   ): Promise<ApiResponse<T>> {
     const startTime = Date.now();
@@ -95,7 +96,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       if (shouldHaveBody(method)) {
         config.data = dataOrParams;
       } else {
-        config.params = dataOrParams;
+        config.params = dataOrParams as Record<string, unknown> | undefined;
       }
 
       // Apply request transforms
@@ -145,7 +146,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         apiResponse = normalizeSuccessResponse(data as T, response, duration);
       } else {
         const error = new Error(
-          `HTTP Error ${response.status}: ${response.statusText}`,
+          `HTTP ${config.method} ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
         );
         apiResponse = {
           ok: false,
@@ -153,7 +154,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
           originalError: error,
           data: data as T,
           status: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
+          headers: headersToObject(response.headers),
           duration,
           response,
         };
@@ -187,9 +188,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * GET request
    */
-  function get<T = any>(
+  function get<T = unknown>(
     url: string,
-    params?: Record<string, any>,
+    params?: Record<string, unknown>,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('GET', url, params, config);
@@ -198,9 +199,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * POST request
    */
-  function post<T = any>(
+  function post<T = unknown>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('POST', url, data, config);
@@ -209,9 +210,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * PUT request
    */
-  function put<T = any>(
+  function put<T = unknown>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('PUT', url, data, config);
@@ -220,9 +221,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * PATCH request
    */
-  function patch<T = any>(
+  function patch<T = unknown>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('PATCH', url, data, config);
@@ -231,9 +232,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * DELETE request
    */
-  function deleteRequest<T = any>(
+  function deleteRequest<T = unknown>(
     url: string,
-    params?: Record<string, any>,
+    params?: Record<string, unknown>,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('DELETE', url, params, config);
@@ -242,9 +243,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   /**
    * HEAD request
    */
-  function head<T = any>(
+  function head<T = unknown>(
     url: string,
-    params?: Record<string, any>,
+    params?: Record<string, unknown>,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('HEAD', url, params, config);
@@ -256,6 +257,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   function addRequestTransform(
     transform: RequestTransform | AsyncRequestTransform,
   ): void {
+    if (typeof transform !== 'function') {
+      throw new TypeError('Request transform must be a function');
+    }
     state.requestTransforms.push(transform);
   }
 
@@ -265,6 +269,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   function addResponseTransform(
     transform: ResponseTransform | AsyncResponseTransform,
   ): void {
+    if (typeof transform !== 'function') {
+      throw new TypeError('Response transform must be a function');
+    }
     state.responseTransforms.push(transform);
   }
 
@@ -272,7 +279,71 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
    * Add a monitor
    */
   function addMonitor(monitor: Monitor): void {
+    if (typeof monitor !== 'function') {
+      throw new TypeError('Monitor must be a function');
+    }
     state.monitors.push(monitor);
+  }
+
+  /**
+   * Remove a specific request transform
+   */
+  function removeRequestTransform(
+    transform: RequestTransform | AsyncRequestTransform,
+  ): boolean {
+    const index = state.requestTransforms.indexOf(transform);
+    if (index > -1) {
+      state.requestTransforms.splice(index, 1);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Remove a specific response transform
+   */
+  function removeResponseTransform(
+    transform: ResponseTransform | AsyncResponseTransform,
+  ): boolean {
+    const index = state.responseTransforms.indexOf(transform);
+    if (index > -1) {
+      state.responseTransforms.splice(index, 1);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Remove a specific monitor
+   */
+  function removeMonitor(monitor: Monitor): boolean {
+    const index = state.monitors.indexOf(monitor);
+    if (index > -1) {
+      state.monitors.splice(index, 1);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Clear all request transforms
+   */
+  function clearRequestTransforms(): void {
+    state.requestTransforms = [];
+  }
+
+  /**
+   * Clear all response transforms
+   */
+  function clearResponseTransforms(): void {
+    state.responseTransforms = [];
+  }
+
+  /**
+   * Clear all monitors
+   */
+  function clearMonitors(): void {
+    state.monitors = [];
   }
 
   /**
@@ -334,7 +405,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
 
   // Return the instance
   return {
-    config: state.config,
+    get config(): Readonly<RefetchConfig> {
+      return { ...state.config };
+    },
     get,
     post,
     put,
@@ -344,6 +417,12 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     addRequestTransform,
     addResponseTransform,
     addMonitor,
+    removeRequestTransform,
+    removeResponseTransform,
+    removeMonitor,
+    clearRequestTransforms,
+    clearResponseTransforms,
+    clearMonitors,
     setHeader,
     setHeaders,
     deleteHeader,

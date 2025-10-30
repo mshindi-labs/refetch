@@ -64,5 +64,8 @@ export type {
 // Enum exports
 export { PROBLEM_CODE } from './types';
 
+// Type guard exports
+export { isOkResponse, isErrorResponse } from './types';
+
 // Constant exports
 export { PROBLEM_CODES, STATUS_RANGES, DEFAULT_TIMEOUT } from './constants';

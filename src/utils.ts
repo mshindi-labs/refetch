@@ -68,9 +68,44 @@ export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
 export function buildUrl(
   baseURL: string | undefined,
   url: string,
-  params?: Record<string, any>,
+  params?: Record<string, unknown>,
 ): string {
-  let fullUrl = baseURL ? `${baseURL}${url}` : url;
+  if (typeof url !== 'string') {
+    throw new TypeError('URL must be a string');
+  }
+
+  // If URL is absolute, use it directly
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    let fullUrl = url;
+    // Add params to absolute URL
+    if (params && Object.keys(params).length > 0) {
+      const searchParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          if (Array.isArray(value)) {
+            value.forEach((item) => searchParams.append(key, String(item)));
+          } else {
+            searchParams.append(key, String(value));
+          }
+        }
+      });
+      const queryString = searchParams.toString();
+      if (queryString) {
+        fullUrl += (fullUrl.includes('?') ? '&' : '?') + queryString;
+      }
+    }
+    return fullUrl;
+  }
+
+  // Handle baseURL and relative URL
+  let fullUrl: string;
+  if (baseURL) {
+    const normalizedBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+    const normalizedUrl = url.startsWith('/') ? url : '/' + url;
+    fullUrl = normalizedBase + normalizedUrl;
+  } else {
+    fullUrl = url;
+  }
 
   if (params && Object.keys(params).length > 0) {
     const searchParams = new URLSearchParams();
@@ -138,16 +173,23 @@ export async function fetchWithTimeout(
   const { timeout = DEFAULT_TIMEOUT, signal, ...fetchConfig } = config;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(new Error(ERROR_MESSAGES.TIMEOUT));
-  }, timeout);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let signalHandler: (() => void) | undefined;
 
   try {
+    // Set up timeout
+    if (timeout) {
+      timeoutId = setTimeout(() => {
+        controller.abort(new Error(ERROR_MESSAGES.TIMEOUT));
+      }, timeout);
+    }
+
     // Combine signals if one was provided
     if (signal) {
-      signal.addEventListener('abort', () => {
+      signalHandler = () => {
         controller.abort(signal.reason);
-      });
+      };
+      signal.addEventListener('abort', signalHandler);
     }
 
     const response = await fetch(url, {
@@ -155,11 +197,13 @@ export async function fetchWithTimeout(
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
     return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    throw error;
+  } finally {
+    // Cleanup timeout and signal listener
+    if (timeoutId) clearTimeout(timeoutId);
+    if (signal && signalHandler) {
+      signal.removeEventListener('abort', signalHandler);
+    }
   }
 }
 
@@ -168,32 +212,32 @@ export async function fetchWithTimeout(
  */
 export async function parseResponseBody<T>(
   response: Response,
-): Promise<T | null> {
+): Promise<T | string | Blob | null> {
   const contentType = response.headers.get('content-type');
 
   try {
     if (!contentType) {
       const text = await response.text();
-      return text ? (text as any) : null;
+      return text || null;
     }
 
     if (contentType.includes('application/json')) {
-      return await response.json();
+      return (await response.json()) as T;
     }
 
     if (
       contentType.includes('text/') ||
       contentType.includes('application/xml')
     ) {
-      return (await response.text()) as any;
+      return await response.text();
     }
 
     if (contentType.includes('application/octet-stream')) {
-      return (await response.blob()) as any;
+      return await response.blob();
     }
 
     // Default to text
-    return (await response.text()) as any;
+    return await response.text();
   } catch (error) {
     // If parsing fails, return null
     return null;
@@ -247,7 +291,7 @@ export function normalizeErrorResponse<T>(
  * Prepare request body
  */
 export function prepareRequestBody(
-  data: any,
+  data: unknown,
 ): string | FormData | URLSearchParams | undefined {
   if (data === undefined || data === null) {
     return undefined;

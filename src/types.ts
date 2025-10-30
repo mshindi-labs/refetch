@@ -124,12 +124,12 @@ export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
   /**
    * Request parameters (for query string or body)
    */
-  params?: Record<string, any>;
+  params?: Record<string, unknown>;
 
   /**
    * Request data (will be JSON stringified)
    */
-  data?: any;
+  data?: unknown;
 
   /**
    * Request timeout in milliseconds
@@ -144,8 +144,9 @@ export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
 
 /**
  * Configuration for creating a refetch instance
+ * Extends RequestInit to allow all standard fetch options
  */
-export interface RefetchConfig {
+export interface RefetchConfig extends Omit<RequestInit, 'method' | 'body'> {
   /**
    * Base URL for all requests
    */
@@ -160,11 +161,6 @@ export interface RefetchConfig {
    * Default timeout in milliseconds
    */
   timeout?: number;
-
-  /**
-   * Additional fetch options
-   */
-  [key: string]: any;
 }
 
 /**
@@ -205,55 +201,61 @@ export interface RefetchInstance {
 
   /**
    * Make a GET request
+   * @template T - The expected response data type
    */
-  get<T = any>(
+  get<T = unknown>(
     url: string,
-    params?: Record<string, any>,
+    params?: Record<string, unknown>,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   /**
    * Make a POST request
+   * @template T - The expected response data type
    */
-  post<T = any>(
+  post<T = unknown>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   /**
    * Make a PUT request
+   * @template T - The expected response data type
    */
-  put<T = any>(
+  put<T = unknown>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   /**
    * Make a PATCH request
+   * @template T - The expected response data type
    */
-  patch<T = any>(
+  patch<T = unknown>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   /**
    * Make a DELETE request
+   * @template T - The expected response data type
    */
-  delete<T = any>(
+  delete<T = unknown>(
     url: string,
-    params?: Record<string, any>,
+    params?: Record<string, unknown>,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   /**
    * Make a HEAD request
+   * @template T - The expected response data type
    */
-  head<T = any>(
+  head<T = unknown>(
     url: string,
-    params?: Record<string, any>,
+    params?: Record<string, unknown>,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
@@ -277,6 +279,43 @@ export interface RefetchInstance {
   addMonitor(monitor: Monitor): void;
 
   /**
+   * Remove a specific request transform
+   * @returns true if the transform was found and removed
+   */
+  removeRequestTransform(
+    transform: RequestTransform | AsyncRequestTransform,
+  ): boolean;
+
+  /**
+   * Remove a specific response transform
+   * @returns true if the transform was found and removed
+   */
+  removeResponseTransform(
+    transform: ResponseTransform | AsyncResponseTransform,
+  ): boolean;
+
+  /**
+   * Remove a specific monitor
+   * @returns true if the monitor was found and removed
+   */
+  removeMonitor(monitor: Monitor): boolean;
+
+  /**
+   * Clear all request transforms
+   */
+  clearRequestTransforms(): void;
+
+  /**
+   * Clear all response transforms
+   */
+  clearResponseTransforms(): void;
+
+  /**
+   * Clear all monitors
+   */
+  clearMonitors(): void;
+
+  /**
    * Set a header for all requests
    */
   setHeader(name: string, value: string): void;
@@ -295,4 +334,26 @@ export interface RefetchInstance {
    * Set the base URL
    */
   setBaseURL(baseURL: string): void;
+}
+
+/**
+ * Type guard to check if a response is successful
+ * @param response - The API response to check
+ * @returns true if the response is successful
+ */
+export function isOkResponse<T>(
+  response: ApiResponse<T>,
+): response is ApiOkResponse<T> {
+  return response.ok === true;
+}
+
+/**
+ * Type guard to check if a response is an error
+ * @param response - The API response to check
+ * @returns true if the response is an error
+ */
+export function isErrorResponse<T>(
+  response: ApiResponse<T>,
+): response is ApiErrorResponse<T> {
+  return response.ok === false;
 }
