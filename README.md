@@ -1,0 +1,402 @@
+# Refetch
+
+A lightweight, apisauce-inspired HTTP client built on native `fetch` API with TypeScript support.
+
+## Features
+
+- Built on native `fetch` API (no axios dependency)
+- Standardized response format with error classification
+- Request/Response transforms (sync & async)
+- Response monitors for logging/analytics
+- Timeout support using AbortController
+- Full TypeScript support with generics
+- Similar API to apisauce for easy migration
+
+## Installation
+
+Refetch is already part of this project. Simply import it:
+
+```typescript
+import { create } from '@/lib/refetch';
+```
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { create, PROBLEM_CODE } from '@/lib/refetch';
+
+// Create an API instance
+const api = create({
+  baseURL: 'https://api.example.com',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000, // 10 seconds
+});
+
+// Make a GET request
+const response = await api.get<User>('/users/1');
+
+if (response.ok) {
+  console.log('User:', response.data);
+} else {
+  console.error('Error:', response.problem);
+  // response.problem can be:
+  // - PROBLEM_CODE.CLIENT_ERROR (400-499)
+  // - PROBLEM_CODE.SERVER_ERROR (500-599)
+  // - PROBLEM_CODE.TIMEOUT_ERROR
+  // - PROBLEM_CODE.NETWORK_ERROR
+  // - etc.
+}
+```
+
+### POST Request
+
+```typescript
+interface CreateUserData {
+  name: string;
+  email: string;
+}
+
+const response = await api.post<User>('/users', {
+  name: 'John Doe',
+  email: 'john@example.com',
+});
+
+if (response.ok) {
+  console.log('Created user:', response.data);
+} else {
+  console.error('Failed to create user:', response.problem);
+}
+```
+
+### All HTTP Methods
+
+```typescript
+// GET with query params
+const users = await api.get('/users', { page: 1, limit: 10 });
+
+// POST with data
+const created = await api.post('/users', userData);
+
+// PUT with data
+const updated = await api.put('/users/1', userData);
+
+// PATCH with partial data
+const patched = await api.patch('/users/1', { name: 'New Name' });
+
+// DELETE with params
+const deleted = await api.delete('/users/1');
+
+// HEAD request
+const head = await api.head('/users/1');
+```
+
+## Advanced Features
+
+### Request Transforms
+
+Add authorization headers or modify requests before sending:
+
+```typescript
+// Synchronous transform
+api.addRequestTransform((request) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    request.headers = {
+      ...request.headers,
+      Authorization: `Bearer ${token}`,
+    };
+  }
+});
+
+// Async transform
+api.addRequestTransform(async (request) => {
+  const token = await getAuthToken();
+  request.headers = {
+    ...request.headers,
+    Authorization: `Bearer ${token}`,
+  };
+});
+```
+
+### Response Transforms
+
+Modify responses after receiving:
+
+```typescript
+api.addResponseTransform((response) => {
+  // Transform data format
+  if (response.ok && response.data) {
+    response.data = transformData(response.data);
+  }
+});
+
+// Async response transform
+api.addResponseTransform(async (response) => {
+  if (response.data) {
+    response.data = await processData(response.data);
+  }
+});
+```
+
+### Monitors
+
+Observe all API responses for logging, analytics, or debugging:
+
+```typescript
+// Simple logging monitor
+api.addMonitor((response) => {
+  console.log('API Response:', {
+    url: response.response?.url,
+    status: response.status,
+    duration: response.duration,
+    problem: response.problem,
+  });
+});
+
+// Error tracking monitor
+api.addMonitor((response) => {
+  if (!response.ok) {
+    trackError({
+      type: response.problem,
+      error: response.originalError,
+      status: response.status,
+    });
+  }
+});
+
+// Performance monitoring
+api.addMonitor((response) => {
+  if (response.duration && response.duration > 3000) {
+    console.warn('Slow API call:', response.response?.url, response.duration);
+  }
+});
+```
+
+### Dynamic Headers
+
+```typescript
+// Set a single header
+api.setHeader('X-Custom-Header', 'value');
+
+// Set multiple headers
+api.setHeaders({
+  'X-API-Key': 'your-api-key',
+  'X-Client-Version': '1.0.0',
+});
+
+// Delete a header
+api.deleteHeader('X-Custom-Header');
+
+// Update base URL
+api.setBaseURL('https://api-v2.example.com');
+```
+
+### Per-Request Configuration
+
+Override instance configuration for specific requests:
+
+```typescript
+const response = await api.get<User>('/users/1', undefined, {
+  timeout: 5000, // Override timeout for this request
+  headers: {
+    'X-Request-Id': crypto.randomUUID(),
+  },
+});
+```
+
+## Response Format
+
+All responses follow a consistent format:
+
+```typescript
+interface ApiResponse<T> {
+  ok: boolean; // true if 200-299
+  problem: PROBLEM_CODE | null; // Error classification
+  originalError: Error | null; // Original error if any
+  data?: T; // Response data
+  status?: number; // HTTP status code
+  headers?: Record<string, string>; // Response headers
+  duration?: number; // Request duration in ms
+  response?: Response; // Original fetch Response
+}
+```
+
+## Error Handling
+
+### Problem Codes
+
+```typescript
+export enum PROBLEM_CODE {
+  NONE = 'NONE', // 200-299
+  CLIENT_ERROR = 'CLIENT_ERROR', // 400-499
+  SERVER_ERROR = 'SERVER_ERROR', // 500-599
+  TIMEOUT_ERROR = 'TIMEOUT_ERROR', // Request timeout
+  CONNECTION_ERROR = 'CONNECTION_ERROR', // Cannot connect
+  NETWORK_ERROR = 'NETWORK_ERROR', // Network unavailable
+  CANCEL_ERROR = 'CANCEL_ERROR', // Request cancelled
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR', // Unknown error
+}
+```
+
+### Error Handling Patterns
+
+```typescript
+// Simple check
+if (!response.ok) {
+  console.error('Request failed:', response.problem);
+}
+
+// Specific error handling
+switch (response.problem) {
+  case PROBLEM_CODE.CLIENT_ERROR:
+    console.error('Client error (400-499):', response.status);
+    break;
+  case PROBLEM_CODE.SERVER_ERROR:
+    console.error('Server error (500-599):', response.status);
+    break;
+  case PROBLEM_CODE.TIMEOUT_ERROR:
+    console.error('Request timed out');
+    break;
+  case PROBLEM_CODE.NETWORK_ERROR:
+    console.error('Network unavailable');
+    break;
+  default:
+    console.error('Unknown error');
+}
+
+// Type guards
+if (response.ok) {
+  // TypeScript knows response.data is defined here
+  console.log(response.data.id);
+}
+```
+
+## Integration with TanStack Query
+
+Perfect integration with TanStack Query:
+
+```typescript
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { api } from '@/lib/api'; // Your refetch instance
+
+// Query
+function useUser(id: string) {
+  return useQuery({
+    queryKey: ['user', id],
+    queryFn: async () => {
+      const response = await api.get<User>(`/users/${id}`);
+      if (!response.ok) {
+        throw new Error(response.problem || 'Failed to fetch user');
+      }
+      return response.data;
+    },
+  });
+}
+
+// Mutation
+function useCreateUser() {
+  return useMutation({
+    mutationFn: async (data: CreateUserData) => {
+      const response = await api.post<User>('/users', data);
+      if (!response.ok) {
+        throw new Error(response.problem || 'Failed to create user');
+      }
+      return response.data;
+    },
+  });
+}
+```
+
+## Comparison with Apisauce
+
+| Feature                  | Refetch      | Apisauce     |
+| ------------------------ | ------------ | ------------ |
+| Base HTTP library        | Native fetch | Axios        |
+| TypeScript support       | Full         | Full         |
+| Response normalization   | ✓            | ✓            |
+| Request transforms       | ✓            | ✓            |
+| Response transforms      | ✓            | ✓            |
+| Monitors                 | ✓            | ✓            |
+| Timeout support          | ✓            | ✓            |
+| Bundle size              | Smaller      | Larger       |
+| Browser support          | Modern       | All          |
+| Node.js support          | 18+          | All versions |
+| Request cancellation     | AbortSignal  | CancelToken  |
+
+## TypeScript Types
+
+```typescript
+import type {
+  ApiResponse,
+  ApiOkResponse,
+  ApiErrorResponse,
+  RefetchInstance,
+  RefetchConfig,
+  RequestConfig,
+  RequestTransform,
+  AsyncRequestTransform,
+  ResponseTransform,
+  AsyncResponseTransform,
+  Monitor,
+} from '@/lib/refetch';
+```
+
+## Best Practices
+
+1. **Create a single instance** per API and reuse it:
+
+```typescript
+// lib/api.ts
+import { create } from '@/lib/refetch';
+
+export const api = create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  timeout: 10000,
+});
+```
+
+2. **Use transforms for common logic**:
+
+```typescript
+// Add auth token to all requests
+api.addRequestTransform((request) => {
+  const token = getToken();
+  if (token) {
+    request.headers = { ...request.headers, Authorization: `Bearer ${token}` };
+  }
+});
+```
+
+3. **Handle errors consistently**:
+
+```typescript
+api.addMonitor((response) => {
+  if (!response.ok && response.problem === PROBLEM_CODE.CLIENT_ERROR) {
+    if (response.status === 401) {
+      // Handle unauthorized
+      redirectToLogin();
+    }
+  }
+});
+```
+
+4. **Type your responses**:
+
+```typescript
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+const response = await api.get<User>('/users/1');
+// response.data is typed as User when ok is true
+```
+
+## License
+
+Part of the supaestate-app monorepo.

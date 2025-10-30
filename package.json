@@ -1,0 +1,47 @@
+{
+  "name": "@mshindi-labs/refetch",
+  "version": "1.0.0",
+  "description": "A lightweight, apisauce-inspired HTTP client built on native fetch API with TypeScript support",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "fetch",
+    "http",
+    "client",
+    "api",
+    "rest",
+    "typescript",
+    "apisauce",
+    "request",
+    "ajax",
+    "xhr"
+  ],
+  "author": "mshindi-labs",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module",
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3"
+  }
+}
