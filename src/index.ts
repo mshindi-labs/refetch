@@ -69,3 +69,15 @@ export { isOkResponse, isErrorResponse } from './types';
 
 // Constant exports
 export { STATUS_RANGES, DEFAULT_TIMEOUT } from './constants';
+
+// Utility exports
+export {
+  buildUrl,
+  mergeHeaders,
+  fetchWithTimeout,
+  parseResponseBody,
+  normalizeSuccessResponse,
+  normalizeErrorResponse,
+  prepareRequestBody,
+  shouldHaveBody,
+} from './utils';
