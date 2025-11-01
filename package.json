@@ -1,6 +1,6 @@
 {
   "name": "@mshindi-labs/refetch",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "A lightweight, apisauce-inspired HTTP client built on native fetch API with TypeScript support",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
