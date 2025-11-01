@@ -80,4 +80,7 @@ export {
   normalizeErrorResponse,
   prepareRequestBody,
   shouldHaveBody,
+  headersToObject,
+  classifyProblem,
+  buildQueryString,
 } from './utils';

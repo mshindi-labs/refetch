@@ -65,7 +65,7 @@ export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
 /**
  * Build a query string from params object
  */
-function buildQueryString(params: Record<string, unknown>): string {
+export function buildQueryString(params: Record<string, unknown>): string {
   if (!params || Object.keys(params).length === 0) {
     return '';
   }
