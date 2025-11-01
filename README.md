@@ -55,12 +55,14 @@ if (response.ok) {
   console.log('User:', response.data);
 } else {
   console.error('Error:', response.problem);
-  // response.problem can be:
+  // response.problem will be one of:
   // - PROBLEM_CODE.CLIENT_ERROR (400-499)
   // - PROBLEM_CODE.SERVER_ERROR (500-599)
   // - PROBLEM_CODE.TIMEOUT_ERROR
   // - PROBLEM_CODE.NETWORK_ERROR
-  // - etc.
+  // - PROBLEM_CODE.CONNECTION_ERROR
+  // - PROBLEM_CODE.CANCEL_ERROR
+  // - PROBLEM_CODE.UNKNOWN_ERROR
 }
 ```
 
@@ -104,6 +106,23 @@ const deleted = await api.delete('/users/1');
 
 // HEAD request
 const head = await api.head('/users/1');
+
+// LINK request (for linking resources)
+const linked = await api.link('/images/avatar.jpg', {}, {
+  headers: { Link: '<http://example.com/profiles/user>; rel="tag"' }
+});
+
+// UNLINK request
+const unlinked = await api.unlink('/images/avatar.jpg', {}, {
+  headers: { Link: '<http://example.com/profiles/user>; rel="tag"' }
+});
+
+// Generic method for any HTTP verb (including custom methods)
+const response = await api.any({
+  method: 'PROPFIND',
+  url: '/webdav/folder',
+  headers: { Depth: '1' }
+});
 ```
 
 ## Advanced Features
@@ -188,7 +207,7 @@ api.addMonitor((response) => {
 });
 ```
 
-### Dynamic Headers
+### Dynamic Headers and Base URL
 
 ```typescript
 // Set a single header
@@ -205,6 +224,10 @@ api.deleteHeader('X-Custom-Header');
 
 // Update base URL
 api.setBaseURL('https://api-v2.example.com');
+
+// Get current base URL
+const currentBaseURL = api.getBaseURL();
+console.log('Current API base:', currentBaseURL);
 ```
 
 ### Per-Request Configuration
@@ -323,21 +346,16 @@ function useCreateUser() {
 }
 ```
 
-## Comparison with Apisauce
+## Why Refetch?
 
-| Feature                  | Refetch      | Apisauce     |
-| ------------------------ | ------------ | ------------ |
-| Base HTTP library        | Native fetch | Axios        |
-| TypeScript support       | Full         | Full         |
-| Response normalization   | ✓            | ✓            |
-| Request transforms       | ✓            | ✓            |
-| Response transforms      | ✓            | ✓            |
-| Monitors                 | ✓            | ✓            |
-| Timeout support          | ✓            | ✓            |
-| Bundle size              | Smaller      | Larger       |
-| Browser support          | Modern       | All          |
-| Node.js support          | 18+          | All versions |
-| Request cancellation     | AbortSignal  | CancelToken  |
+- **Tiny Bundle Size**: Only ~2.3 KB gzipped (no axios dependency)
+- **Modern Standards**: Built on native `fetch` API with AbortController
+- **Zero Runtime Dependencies**: No external dependencies in production
+- **Full TypeScript Support**: Complete type safety with generics
+- **Flexible Transforms**: Add/remove/clear request and response transforms
+- **Error Classification**: Automatic categorization of errors (network, timeout, server, etc.)
+- **Node.js 18+ Ready**: Works in modern Node.js environments
+- **Browser Compatible**: Works in all modern browsers with native fetch support
 
 ## TypeScript Types
 
@@ -409,6 +427,37 @@ const response = await api.get<User>('/users/1');
 // response.data is typed as User when ok is true
 ```
 
+## What's New in v2.0.3
+
+### Latest Updates
+
+**New HTTP Methods:**
+```typescript
+// LINK and UNLINK methods for resource linking
+await api.link('/resources/image.jpg', {}, { headers: { Link: '...' }});
+await api.unlink('/resources/image.jpg', {}, { headers: { Link: '...' }});
+
+// Generic any() method for custom HTTP verbs
+await api.any({ method: 'PROPFIND', url: '/webdav', headers: { Depth: '1' }});
+```
+
+**Base URL Getter:**
+```typescript
+// Get current base URL
+const baseURL = api.getBaseURL();
+```
+
+**Optimizations:**
+- Reduced bundle size to ~2.3 KB gzipped (40% smaller)
+- Simplified header management with normalized Headers class
+- Removed code duplication and unused constants
+- Better tree-shaking support
+
+**Bug Fixes:**
+- Fixed DEFAULT_HEADERS being applied to FormData and URLSearchParams (file uploads now work correctly)
+- Consistent error response handling across all error paths
+- Improved error classification
+
 ## What's New in v2.0.0
 
 ### Breaking Changes
@@ -421,19 +470,19 @@ const response = await api.get<User>('/users/1');
 - `api.config` is now readonly and returns a copy
 - Use setter methods like `setBaseURL()` instead of direct mutation
 
-### New Features
+### Features from v2.0.0
 
 **Transform & Monitor Management:**
 ```typescript
 // Remove specific transforms/monitors
 const transform = (config) => { /* ... */ };
 api.addRequestTransform(transform);
-api.removeRequestTransform(transform);  // NEW
+api.removeRequestTransform(transform);
 
 // Clear all transforms/monitors
-api.clearRequestTransforms();  // NEW
-api.clearResponseTransforms();  // NEW
-api.clearMonitors();  // NEW
+api.clearRequestTransforms();
+api.clearResponseTransforms();
+api.clearMonitors();
 ```
 
 **Type Guards:**

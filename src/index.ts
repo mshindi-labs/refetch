@@ -68,4 +68,4 @@ export { PROBLEM_CODE } from './types';
 export { isOkResponse, isErrorResponse } from './types';
 
 // Constant exports
-export { PROBLEM_CODES, STATUS_RANGES, DEFAULT_TIMEOUT } from './constants';
+export { STATUS_RANGES, DEFAULT_TIMEOUT } from './constants';

@@ -260,6 +260,32 @@ export interface RefetchInstance {
   ): Promise<ApiResponse<T>>;
 
   /**
+   * Make a LINK request
+   * @template T - The expected response data type
+   */
+  link<T = unknown>(
+    url: string,
+    params?: Record<string, unknown>,
+    config?: RequestConfig,
+  ): Promise<ApiResponse<T>>;
+
+  /**
+   * Make an UNLINK request
+   * @template T - The expected response data type
+   */
+  unlink<T = unknown>(
+    url: string,
+    params?: Record<string, unknown>,
+    config?: RequestConfig,
+  ): Promise<ApiResponse<T>>;
+
+  /**
+   * Make a request with any HTTP method
+   * @template T - The expected response data type
+   */
+  any<T = unknown>(config: RequestConfig): Promise<ApiResponse<T>>;
+
+  /**
    * Add a request transform (sync or async)
    */
   addRequestTransform(
@@ -334,6 +360,11 @@ export interface RefetchInstance {
    * Set the base URL
    */
   setBaseURL(baseURL: string): void;
+
+  /**
+   * Get the base URL
+   */
+  getBaseURL(): string | undefined;
 }
 
 /**
