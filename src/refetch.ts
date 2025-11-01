@@ -135,12 +135,14 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       );
 
       // Make the fetch request with timeout
+      // Note: Spread config first, then override with our processed values
+      // to prevent config.headers from overriding our merged headers
       const fetchConfig: RequestInit & { timeout?: number } = {
+        ...config,
         method: config.method,
         headers,
         body,
         timeout: config.timeout || state.config.timeout,
-        ...config,
       };
 
       const response = await fetchWithTimeout(fullUrl, fetchConfig);
