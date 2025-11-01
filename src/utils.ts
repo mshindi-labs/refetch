@@ -1,5 +1,5 @@
 import { type ApiResponse, PROBLEM_CODE, type RequestConfig } from './types';
-import { STATUS_RANGES, ERROR_MESSAGES, DEFAULT_TIMEOUT } from './constants';
+import { STATUS_RANGES, DEFAULT_TIMEOUT } from './constants';
 
 /**
  * Classify the problem based on status code or error
@@ -63,6 +63,28 @@ export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
 }
 
 /**
+ * Build a query string from params object
+ */
+function buildQueryString(params: Record<string, unknown>): string {
+  if (!params || Object.keys(params).length === 0) {
+    return '';
+  }
+
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      if (Array.isArray(value)) {
+        value.forEach((item) => searchParams.append(key, String(item)));
+      } else {
+        searchParams.append(key, String(value));
+      }
+    }
+  });
+
+  return searchParams.toString();
+}
+
+/**
  * Build a full URL with query parameters
  */
 export function buildUrl(
@@ -76,25 +98,11 @@ export function buildUrl(
 
   // If URL is absolute, use it directly
   if (url.startsWith('http://') || url.startsWith('https://')) {
-    let fullUrl = url;
-    // Add params to absolute URL
-    if (params && Object.keys(params).length > 0) {
-      const searchParams = new URLSearchParams();
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          if (Array.isArray(value)) {
-            value.forEach((item) => searchParams.append(key, String(item)));
-          } else {
-            searchParams.append(key, String(value));
-          }
-        }
-      });
-      const queryString = searchParams.toString();
-      if (queryString) {
-        fullUrl += (fullUrl.includes('?') ? '&' : '?') + queryString;
-      }
+    const queryString = buildQueryString(params || {});
+    if (queryString) {
+      return url + (url.includes('?') ? '&' : '?') + queryString;
     }
-    return fullUrl;
+    return url;
   }
 
   // Handle baseURL and relative URL
@@ -107,23 +115,9 @@ export function buildUrl(
     fullUrl = url;
   }
 
-  if (params && Object.keys(params).length > 0) {
-    const searchParams = new URLSearchParams();
-
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        if (Array.isArray(value)) {
-          value.forEach((item) => searchParams.append(key, String(item)));
-        } else {
-          searchParams.append(key, String(value));
-        }
-      }
-    });
-
-    const queryString = searchParams.toString();
-    if (queryString) {
-      fullUrl += (fullUrl.includes('?') ? '&' : '?') + queryString;
-    }
+  const queryString = buildQueryString(params || {});
+  if (queryString) {
+    fullUrl += (fullUrl.includes('?') ? '&' : '?') + queryString;
   }
 
   return fullUrl;
@@ -180,7 +174,7 @@ export async function fetchWithTimeout(
     // Set up timeout
     if (timeout) {
       timeoutId = setTimeout(() => {
-        controller.abort(new Error(ERROR_MESSAGES.TIMEOUT));
+        controller.abort(new Error('Request timeout'));
       }, timeout);
     }
 

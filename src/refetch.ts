@@ -20,17 +20,25 @@ import {
   normalizeErrorResponse,
   prepareRequestBody,
   shouldHaveBody,
-  classifyProblem,
-  headersToObject,
 } from './utils';
 
 /**
  * Create a new refetch instance
  */
 export function create(config: RefetchConfig = {}): RefetchInstance {
+  // Normalize headers to Headers class for internal use
+  const normalizedConfig = { ...config };
+  if (normalizedConfig.headers) {
+    if (!(normalizedConfig.headers instanceof Headers)) {
+      normalizedConfig.headers = new Headers(normalizedConfig.headers as HeadersInit);
+    }
+  } else {
+    normalizedConfig.headers = new Headers();
+  }
+
   // Internal state
   const state = {
-    config: { ...config },
+    config: normalizedConfig,
     requestTransforms: [] as Array<RequestTransform | AsyncRequestTransform>,
     responseTransforms: [] as Array<ResponseTransform | AsyncResponseTransform>,
     monitors: [] as Monitor[],
@@ -109,17 +117,21 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         config.params,
       );
 
-      // Merge headers
-      const headers = mergeHeaders(
-        DEFAULT_HEADERS,
-        state.config.headers,
-        config.headers,
-      );
-
       // Prepare the request body
       const body = shouldHaveBody(method)
         ? prepareRequestBody(config.data)
         : undefined;
+
+      // Conditionally apply DEFAULT_HEADERS based on body type
+      // Skip JSON headers for FormData and URLSearchParams
+      const shouldApplyDefaultHeaders =
+        !body || (!(body instanceof FormData) && !(body instanceof URLSearchParams));
+
+      const headers = mergeHeaders(
+        shouldApplyDefaultHeaders ? DEFAULT_HEADERS : undefined,
+        state.config.headers,
+        config.headers,
+      );
 
       // Make the fetch request with timeout
       const fetchConfig: RequestInit & { timeout?: number } = {
@@ -148,16 +160,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         const error = new Error(
           `HTTP ${config.method} ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
         );
-        apiResponse = {
-          ok: false,
-          problem: classifyProblem(response.status),
-          originalError: error,
-          data: data as T,
-          status: response.status,
-          headers: headersToObject(response.headers),
-          duration,
-          response,
-        };
+        apiResponse = normalizeErrorResponse<T>(error, response, duration);
+        // Preserve the parsed data for error responses
+        apiResponse.data = data as T;
       }
 
       // Apply response transforms
@@ -249,6 +254,38 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     config?: RequestConfig,
   ): Promise<ApiResponse<T>> {
     return request<T>('HEAD', url, params, config);
+  }
+
+  /**
+   * LINK request
+   */
+  function link<T = unknown>(
+    url: string,
+    params?: Record<string, unknown>,
+    config?: RequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return request<T>('LINK', url, params, config);
+  }
+
+  /**
+   * UNLINK request
+   */
+  function unlink<T = unknown>(
+    url: string,
+    params?: Record<string, unknown>,
+    config?: RequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return request<T>('UNLINK', url, params, config);
+  }
+
+  /**
+   * Generic request for any HTTP method
+   */
+  function any<T = unknown>(config: RequestConfig): Promise<ApiResponse<T>> {
+    const method = config.method || 'GET';
+    const url = config.url || '/';
+    const dataOrParams = shouldHaveBody(method) ? config.data : config.params;
+    return request<T>(method, url, dataOrParams, config);
   }
 
   /**
@@ -350,24 +387,8 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
    * Set a single header
    */
   function setHeader(name: string, value: string): void {
-    if (!state.config.headers) {
-      state.config.headers = {};
-    }
-
-    if (state.config.headers instanceof Headers) {
-      state.config.headers.set(name, value);
-    } else if (Array.isArray(state.config.headers)) {
-      const existingIndex = state.config.headers.findIndex(
-        ([key]) => key.toLowerCase() === name.toLowerCase(),
-      );
-      if (existingIndex !== -1) {
-        state.config.headers[existingIndex] = [name, value];
-      } else {
-        state.config.headers.push([name, value]);
-      }
-    } else {
-      state.config.headers[name] = value;
-    }
+    // Headers are always normalized to Headers class now
+    (state.config.headers as Headers).set(name, value);
   }
 
   /**
@@ -383,17 +404,8 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
    * Delete a header
    */
   function deleteHeader(name: string): void {
-    if (!state.config.headers) return;
-
-    if (state.config.headers instanceof Headers) {
-      state.config.headers.delete(name);
-    } else if (Array.isArray(state.config.headers)) {
-      state.config.headers = state.config.headers.filter(
-        ([key]) => key.toLowerCase() !== name.toLowerCase(),
-      );
-    } else {
-      delete state.config.headers[name];
-    }
+    // Headers are always normalized to Headers class now
+    (state.config.headers as Headers).delete(name);
   }
 
   /**
@@ -401,6 +413,13 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
    */
   function setBaseURL(baseURL: string): void {
     state.config.baseURL = baseURL;
+  }
+
+  /**
+   * Get base URL
+   */
+  function getBaseURL(): string | undefined {
+    return state.config.baseURL;
   }
 
   // Return the instance
@@ -414,6 +433,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     patch,
     delete: deleteRequest,
     head,
+    link,
+    unlink,
+    any,
     addRequestTransform,
     addResponseTransform,
     addMonitor,
@@ -427,5 +449,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     setHeaders,
     deleteHeader,
     setBaseURL,
+    getBaseURL,
   };
 }
