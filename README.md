@@ -1,361 +1,364 @@
-# Refetch
+# @mshindi-labs/refetch
 
-A lightweight, apisauce-inspired HTTP client built on native `fetch` API with TypeScript support.
+A modern, production-grade HTTP client built on native `fetch` — pure functional TypeScript, interceptors, retry, streaming, and tree-shakeable exports.
 
 ## Features
 
-- Built on native `fetch` API (no axios dependency)
-- Standardized response format with error classification
-- Request/Response transforms (sync & async)
-- Response monitors for logging/analytics
-- Timeout support using AbortController
-- Full TypeScript support with generics
-- Similar API to apisauce for easy migration
+- **Pure functional TypeScript** — no classes, no `this`, compose via `pipe()`
+- **Interceptors** — axios-style request/response middleware with ID-based ejection
+- **Discriminated error union** (`RefetchError`) for precise narrowing per error kind
+- **Retry** — per-request and instance-wide, fully configurable with custom delay/condition
+- **Streaming** — raw `ReadableStream` via `stream()`
+- **Cancellation** — `createCancelToken()` wraps `AbortController`
+- **Middleware HOFs** — `withAuth`, `withTimeout`, `withLogging`, `withHeaders`, `withBaseURL`
+- **Full body support** — JSON, `FormData`, `URLSearchParams`, `Blob`, `ArrayBuffer`, `ReadableStream`
+- **Full response parsing** — JSON, `+json` variants, form-encoded, binary, text, empty bodies
+- **Tree-shakeable** — sub-path exports for retry, middleware, and pipe
+- **Zero runtime dependencies**
 
 ## Installation
-
-Install via npm:
 
 ```bash
 npm install @mshindi-labs/refetch
 ```
 
-Or with yarn:
-
-```bash
-yarn add @mshindi-labs/refetch
-```
-
-Or with pnpm:
-
-```bash
-pnpm add @mshindi-labs/refetch
-```
-
 ## Quick Start
 
-### Basic Usage
-
 ```typescript
-import { create, PROBLEM_CODE } from '@mshindi-labs/refetch';
+import { create } from '@mshindi-labs/refetch';
 
-// Create an API instance
 const api = create({
   baseURL: 'https://api.example.com',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 10000, // 10 seconds
+  timeout: 10_000,
 });
 
-// Make a GET request
 const response = await api.get<User>('/users/1');
 
 if (response.ok) {
-  console.log('User:', response.data);
+  console.log(response.data); // typed as User
 } else {
-  console.error('Error:', response.problem);
-  // response.problem will be one of:
-  // - PROBLEM_CODE.CLIENT_ERROR (400-499)
-  // - PROBLEM_CODE.SERVER_ERROR (500-599)
-  // - PROBLEM_CODE.TIMEOUT_ERROR
-  // - PROBLEM_CODE.NETWORK_ERROR
-  // - PROBLEM_CODE.CONNECTION_ERROR
-  // - PROBLEM_CODE.CANCEL_ERROR
-  // - PROBLEM_CODE.UNKNOWN_ERROR
+  console.error(response.problem, response.error);
 }
 ```
 
-### POST Request
+## HTTP Methods
+
+`GET`, `HEAD`, and `DELETE` take a single response generic. `POST`, `PUT`, and `PATCH` take two — response type and body type:
 
 ```typescript
-interface CreateUserData {
-  name: string;
-  email: string;
-}
+// Read
+const user  = await api.get<User>('/users/1');
+const users = await api.get<User[]>('/users', { page: 1, limit: 10 });
 
-const response = await api.post<User>('/users', {
-  name: 'John Doe',
-  email: 'john@example.com',
-});
+// Write — both generics explicit
+const created = await api.post<User, CreateUserDto>('/users', dto);
+const updated = await api.put<User, UpdateUserDto>('/users/1', data);
+const patched = await api.patch<User, Partial<User>>('/users/1', { name: 'New' });
 
-if (response.ok) {
-  console.log('Created user:', response.data);
-} else {
-  console.error('Failed to create user:', response.problem);
-}
-```
+// Other
+await api.delete('/users/1');
+await api.head('/health');
+await api.link('/images/1.jpg', {}, { headers: { Link: '<...>; rel="tag"' } });
+await api.unlink('/images/1.jpg', {}, { headers: { Link: '<...>; rel="tag"' } });
 
-### All HTTP Methods
-
-```typescript
-// GET with query params
-const users = await api.get('/users', { page: 1, limit: 10 });
-
-// POST with data
-const created = await api.post('/users', userData);
-
-// PUT with data
-const updated = await api.put('/users/1', userData);
-
-// PATCH with partial data
-const patched = await api.patch('/users/1', { name: 'New Name' });
-
-// DELETE with params
-const deleted = await api.delete('/users/1');
-
-// HEAD request
-const head = await api.head('/users/1');
-
-// LINK request (for linking resources)
-const linked = await api.link('/images/avatar.jpg', {}, {
-  headers: { Link: '<http://example.com/profiles/user>; rel="tag"' }
-});
-
-// UNLINK request
-const unlinked = await api.unlink('/images/avatar.jpg', {}, {
-  headers: { Link: '<http://example.com/profiles/user>; rel="tag"' }
-});
-
-// Generic method for any HTTP verb (including custom methods)
-const response = await api.any({
-  method: 'PROPFIND',
-  url: '/webdav/folder',
-  headers: { Depth: '1' }
-});
-```
-
-## Advanced Features
-
-### Request Transforms
-
-Add authorization headers or modify requests before sending:
-
-```typescript
-// Synchronous transform
-api.addRequestTransform((request) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    request.headers = {
-      ...request.headers,
-      Authorization: `Bearer ${token}`,
-    };
-  }
-});
-
-// Async transform
-api.addRequestTransform(async (request) => {
-  const token = await getAuthToken();
-  request.headers = {
-    ...request.headers,
-    Authorization: `Bearer ${token}`,
-  };
-});
-```
-
-### Response Transforms
-
-Modify responses after receiving:
-
-```typescript
-api.addResponseTransform((response) => {
-  // Transform data format
-  if (response.ok && response.data) {
-    response.data = transformData(response.data);
-  }
-});
-
-// Async response transform
-api.addResponseTransform(async (response) => {
-  if (response.data) {
-    response.data = await processData(response.data);
-  }
-});
-```
-
-### Monitors
-
-Observe all API responses for logging, analytics, or debugging:
-
-```typescript
-// Simple logging monitor
-api.addMonitor((response) => {
-  console.log('API Response:', {
-    url: response.response?.url,
-    status: response.status,
-    duration: response.duration,
-    problem: response.problem,
-  });
-});
-
-// Error tracking monitor
-api.addMonitor((response) => {
-  if (!response.ok) {
-    trackError({
-      type: response.problem,
-      error: response.originalError,
-      status: response.status,
-    });
-  }
-});
-
-// Performance monitoring
-api.addMonitor((response) => {
-  if (response.duration && response.duration > 3000) {
-    console.warn('Slow API call:', response.response?.url, response.duration);
-  }
-});
-```
-
-### Dynamic Headers and Base URL
-
-```typescript
-// Set a single header
-api.setHeader('X-Custom-Header', 'value');
-
-// Set multiple headers
-api.setHeaders({
-  'X-API-Key': 'your-api-key',
-  'X-Client-Version': '1.0.0',
-});
-
-// Delete a header
-api.deleteHeader('X-Custom-Header');
-
-// Update base URL
-api.setBaseURL('https://api-v2.example.com');
-
-// Get current base URL
-const currentBaseURL = api.getBaseURL();
-console.log('Current API base:', currentBaseURL);
-```
-
-### Per-Request Configuration
-
-Override instance configuration for specific requests:
-
-```typescript
-const response = await api.get<User>('/users/1', undefined, {
-  timeout: 5000, // Override timeout for this request
-  headers: {
-    'X-Request-Id': crypto.randomUUID(),
-  },
-});
+// Any HTTP verb
+await api.any({ method: 'PROPFIND', url: '/dav', headers: { Depth: '1' } });
 ```
 
 ## Response Format
 
-All responses follow a consistent format:
+Every request returns `ApiResponse<T>` — the shape is identical whether the request succeeded or failed:
 
 ```typescript
 interface ApiResponse<T> {
-  ok: boolean; // true if 200-299
-  problem: PROBLEM_CODE | null; // Error classification
-  originalError: Error | null; // Original error if any
-  data?: T; // Response data
-  status?: number; // HTTP status code
-  headers?: Record<string, string>; // Response headers
-  duration?: number; // Request duration in ms
-  response?: Response; // Original fetch Response
+  ok: boolean;              // true for 200–299
+  problem: PROBLEM_CODE | null;
+  originalError: Error | null;
+  data?: T;
+  status?: number;
+  headers?: Record<string, string>;
+  duration?: number;        // milliseconds
+  response?: Response;      // raw fetch Response
+}
+
+// When ok === false, the error field is also present:
+interface ApiErrorResponse<T> extends ApiResponse<T> {
+  ok: false;
+  problem: PROBLEM_CODE;
+  error: RefetchError;      // discriminated union — see Error Handling
+}
+```
+
+**Type guards:**
+
+```typescript
+import { isOkResponse, isErrorResponse } from '@mshindi-labs/refetch';
+
+if (isOkResponse(response)) {
+  response.data; // T — guaranteed present
+}
+
+if (isErrorResponse(response)) {
+  response.error; // RefetchError — fully narrowable
 }
 ```
 
 ## Error Handling
 
-### Problem Codes
+### PROBLEM_CODE
 
 ```typescript
-export enum PROBLEM_CODE {
-  NONE = 'NONE', // 200-299
-  CLIENT_ERROR = 'CLIENT_ERROR', // 400-499
-  SERVER_ERROR = 'SERVER_ERROR', // 500-599
-  TIMEOUT_ERROR = 'TIMEOUT_ERROR', // Request timeout
-  CONNECTION_ERROR = 'CONNECTION_ERROR', // Cannot connect
-  NETWORK_ERROR = 'NETWORK_ERROR', // Network unavailable
-  CANCEL_ERROR = 'CANCEL_ERROR', // Request cancelled
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR', // Unknown error
-}
-```
+import { PROBLEM_CODE } from '@mshindi-labs/refetch';
 
-### Error Handling Patterns
-
-```typescript
-// Simple check
-if (!response.ok) {
-  console.error('Request failed:', response.problem);
-}
-
-// Specific error handling
 switch (response.problem) {
-  case PROBLEM_CODE.CLIENT_ERROR:
-    console.error('Client error (400-499):', response.status);
-    break;
-  case PROBLEM_CODE.SERVER_ERROR:
-    console.error('Server error (500-599):', response.status);
-    break;
+  case PROBLEM_CODE.CLIENT_ERROR:    // 400–499
+  case PROBLEM_CODE.SERVER_ERROR:    // 500–599
   case PROBLEM_CODE.TIMEOUT_ERROR:
-    console.error('Request timed out');
-    break;
   case PROBLEM_CODE.NETWORK_ERROR:
-    console.error('Network unavailable');
-    break;
-  default:
-    console.error('Unknown error');
-}
-
-// Type guards
-if (response.ok) {
-  // TypeScript knows response.data is defined here
-  console.log(response.data.id);
+  case PROBLEM_CODE.CONNECTION_ERROR:
+  case PROBLEM_CODE.CANCEL_ERROR:
+  case PROBLEM_CODE.UNKNOWN_ERROR:
 }
 ```
 
-## Integration with TanStack Query
+### RefetchError discriminated union
 
-Perfect integration with TanStack Query:
+Use `response.error` when you need typed access to error-specific fields:
 
 ```typescript
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { api } from '@/lib/api'; // Your refetch instance
-
-// Query
-function useUser(id: string) {
-  return useQuery({
-    queryKey: ['user', id],
-    queryFn: async () => {
-      const response = await api.get<User>(`/users/${id}`);
-      if (!response.ok) {
-        throw new Error(response.problem || 'Failed to fetch user');
-      }
-      return response.data;
-    },
-  });
-}
-
-// Mutation
-function useCreateUser() {
-  return useMutation({
-    mutationFn: async (data: CreateUserData) => {
-      const response = await api.post<User>('/users', data);
-      if (!response.ok) {
-        throw new Error(response.problem || 'Failed to create user');
-      }
-      return response.data;
-    },
-  });
+if (!response.ok) {
+  switch (response.error.kind) {
+    case 'http':
+      console.error(response.error.status, response.error.statusText);
+      break;
+    case 'timeout':
+      console.error(`Timed out after ${response.error.duration}ms`);
+      break;
+    case 'cancel':
+      console.info('Cancelled:', response.error.reason);
+      break;
+    case 'network':
+      console.error('Network failure:', response.error.cause);
+      break;
+    case 'parse':
+      console.error('Parse error for', response.error.contentType, response.error.cause);
+      break;
+    case 'unknown':
+      console.error(response.error.cause);
+      break;
+  }
 }
 ```
 
-## Why Refetch?
+## Interceptors
 
-- **Tiny Bundle Size**: Only ~2.3 KB gzipped (no axios dependency)
-- **Modern Standards**: Built on native `fetch` API with AbortController
-- **Zero Runtime Dependencies**: No external dependencies in production
-- **Full TypeScript Support**: Complete type safety with generics
-- **Flexible Transforms**: Add/remove/clear request and response transforms
-- **Error Classification**: Automatic categorization of errors (network, timeout, server, etc.)
-- **Node.js 18+ Ready**: Works in modern Node.js environments
-- **Browser Compatible**: Works in all modern browsers with native fetch support
+Return-based, ID-tracked, and removable. Request interceptors run **LIFO** (last registered, first to run); response interceptors run **FIFO**.
+
+```typescript
+// Add a request interceptor
+const id = api.interceptors.request.use(
+  async (config) => ({
+    ...config,
+    headers: {
+      ...(config.headers as Record<string, string>),
+      Authorization: `Bearer ${await getToken()}`,
+    },
+  }),
+  // Optional onRejected handler
+  (error) => { throw error; },
+);
+
+// Eject by ID
+api.interceptors.request.eject(id);
+
+// Response interceptor — normalize data, handle errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => { throw error; },
+);
+
+// Clear all interceptors
+api.interceptors.request.clear();
+api.interceptors.response.clear();
+```
+
+## Retry
+
+```typescript
+// Instance-wide default — 3 total attempts (1 original + 2 retries)
+const api = create({ baseURL: 'https://api.example.com', retry: 3 });
+
+// Full per-request config
+const response = await api.get('/data', undefined, {
+  retry: {
+    attempts: 4,
+    delay: (attempt) => attempt * 500,            // 500ms, 1s, 1.5s
+    condition: (r) => !r.ok && r.status !== 404,  // skip retry on 404
+    onRetry: (attempt, last) => console.warn('Retry', attempt, last.status),
+  },
+});
+```
+
+**Default condition:** retry on any non-ok response except status codes 400, 401, 403, 404, 422.
+
+Request interceptors run **once** before the retry loop. Response interceptors run **per attempt**.
+
+## Cancellation
+
+```typescript
+import { createCancelToken } from '@mshindi-labs/refetch';
+
+const { token, cancel } = createCancelToken();
+
+// Pass the AbortSignal in config
+const req = api.get('/slow-resource', undefined, { signal: token });
+
+// Cancel from outside
+cancel('User navigated away');
+
+const response = await req;
+if (!response.ok && response.error.kind === 'cancel') {
+  console.log('Reason:', response.error.reason);
+}
+```
+
+## Streaming
+
+`stream()` returns the raw `ReadableStream` without body parsing — useful for large downloads, SSE, or chunked responses:
+
+```typescript
+const response = await api.stream('/large-file.bin');
+
+if (response.ok) {
+  const reader = response.data.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    processChunk(value); // Uint8Array
+  }
+}
+```
+
+**SSE / text streams:**
+
+```typescript
+const response = await api.stream<string>('/events');
+if (response.ok) {
+  const text = response.data.pipeThrough(new TextDecoderStream());
+  for await (const chunk of text) {
+    console.log(chunk);
+  }
+}
+```
+
+## Middleware + pipe
+
+`pipe` chains middleware HOFs onto an instance without mutation at the call site:
+
+```typescript
+import { create, pipe } from '@mshindi-labs/refetch';
+import { withAuth, withTimeout, withLogging, withHeaders, withBaseURL } from '@mshindi-labs/refetch/middleware';
+
+const api = pipe(
+  create({ baseURL: 'https://api.example.com' }),
+  withAuth(async () => await getAccessToken()),
+  withTimeout(8_000),
+  withLogging(),
+);
+```
+
+| HOF | Effect |
+|---|---|
+| `withAuth(getToken)` | Injects `Authorization: Bearer <token>` per request — `getToken` called each time |
+| `withTimeout(ms)` | Sets request timeout for all requests |
+| `withHeaders(headers)` | Merges additional default headers |
+| `withBaseURL(url)` | Overrides the base URL |
+| `withLogging(logger?)` | Logs each request and response; defaults to `console` |
+
+Sub-path import (tree-shaking):
+
+```typescript
+import { withAuth, withLogging } from '@mshindi-labs/refetch/middleware';
+import { pipe }                  from '@mshindi-labs/refetch/pipe';
+```
+
+## Body Formats
+
+All native `fetch` body types are passed through without transformation. `Content-Type` is set automatically based on body type:
+
+| Body | Auto `Content-Type` |
+|---|---|
+| Plain object / array | `application/json` |
+| `string` | `application/json` |
+| `FormData` | *omitted* — browser sets `multipart/form-data; boundary=…` |
+| `URLSearchParams` | `application/x-www-form-urlencoded;charset=UTF-8` |
+| `Blob` | Blob's own `.type`, or `application/octet-stream` |
+| `ArrayBuffer` / `ArrayBufferView` | `application/octet-stream` |
+| `ReadableStream` | `application/octet-stream` |
+
+If you explicitly set `Content-Type` in your request headers, it takes precedence (except FormData, where it is always removed to preserve the browser-managed boundary).
+
+**Form-encoded body:**
+
+```typescript
+await api.post('/login', new URLSearchParams({ username, password }));
+```
+
+**File upload:**
+
+```typescript
+const form = new FormData();
+form.append('avatar', file);
+await api.post('/profile/avatar', form);
+```
+
+## Response Parsing
+
+`parseResponseBody` automatically picks the right parser based on `Content-Type`:
+
+| Content-Type | Parsed to |
+|---|---|
+| `application/json` | `T` via `JSON.parse` |
+| `application/*+json` (e.g. `vnd.api+json`, `ld+json`, `problem+json`) | `T` via `JSON.parse` |
+| `application/x-www-form-urlencoded` | `Record<string, string>` via `URLSearchParams` |
+| `text/*`, `application/xml`, `application/xhtml+xml` | `string` |
+| `image/*`, `audio/*`, `video/*` | `Blob` |
+| `application/pdf`, `application/zip`, `application/gzip`, Office formats, etc. | `Blob` |
+| 204 / 304 / `content-length: 0` | `null` |
+| Anything else | `string` (fallback) |
+
+## Sub-path Exports
+
+```typescript
+import { pipe }                              from '@mshindi-labs/refetch/pipe';
+import { withAuth, withLogging }             from '@mshindi-labs/refetch/middleware';
+import { normalizeRetryConfig, shouldRetry } from '@mshindi-labs/refetch/retry';
+```
+
+## Dynamic Instance Configuration
+
+```typescript
+api.setHeader('X-Request-Id', crypto.randomUUID());
+api.setHeaders({ 'X-API-Key': 'key', 'X-Client-Version': '3.0' });
+api.deleteHeader('X-Temporary');
+
+api.setBaseURL('https://api-v2.example.com');
+api.getBaseURL();
+```
+
+## Monitors
+
+Observe all responses after transforms — fire-and-forget (exceptions caught internally):
+
+```typescript
+api.addMonitor((response) => {
+  if (!response.ok) errorTracker.capture(response.error);
+});
+
+// Remove or clear
+api.removeMonitor(fn);
+api.clearMonitors();
+```
 
 ## TypeScript Types
 
@@ -364,173 +367,114 @@ import type {
   ApiResponse,
   ApiOkResponse,
   ApiErrorResponse,
-  RefetchInstance,
+  RefetchError,
+  RetryConfig,
   RefetchConfig,
+  RefetchInstance,
   RequestConfig,
-  RequestTransform,
-  AsyncRequestTransform,
-  ResponseTransform,
-  AsyncResponseTransform,
+  InterceptorManager,
+  InterceptorHandler,
   Monitor,
 } from '@mshindi-labs/refetch';
 ```
 
-## Best Practices
+## Deprecated: Transforms
 
-1. **Create a single instance** per API and reuse it:
+Mutation-based transforms are still supported for backward compatibility. Prefer interceptors for new code:
 
 ```typescript
-// lib/api.ts
-import { create } from '@mshindi-labs/refetch';
-
-export const api = create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
-  timeout: 10000,
+// Deprecated — still works
+api.addRequestTransform((config) => {
+  config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
 });
-```
-
-2. **Use transforms for common logic**:
-
-```typescript
-// Add auth token to all requests
-api.addRequestTransform((request) => {
-  const token = getToken();
-  if (token) {
-    request.headers = { ...request.headers, Authorization: `Bearer ${token}` };
-  }
+api.addResponseTransform((response) => {
+  if (response.ok) response.data = normalize(response.data);
 });
-```
-
-3. **Handle errors consistently**:
-
-```typescript
-api.addMonitor((response) => {
-  if (!response.ok && response.problem === PROBLEM_CODE.CLIENT_ERROR) {
-    if (response.status === 401) {
-      // Handle unauthorized
-      redirectToLogin();
-    }
-  }
-});
-```
-
-4. **Type your responses**:
-
-```typescript
-interface User {
-  id: string;
-  name: string;
-  email: string;
-}
-
-const response = await api.get<User>('/users/1');
-// response.data is typed as User when ok is true
-```
-
-## What's New in v2.0.3
-
-### Latest Updates
-
-**New HTTP Methods:**
-```typescript
-// LINK and UNLINK methods for resource linking
-await api.link('/resources/image.jpg', {}, { headers: { Link: '...' }});
-await api.unlink('/resources/image.jpg', {}, { headers: { Link: '...' }});
-
-// Generic any() method for custom HTTP verbs
-await api.any({ method: 'PROPFIND', url: '/webdav', headers: { Depth: '1' }});
-```
-
-**Base URL Getter:**
-```typescript
-// Get current base URL
-const baseURL = api.getBaseURL();
-```
-
-**Optimizations:**
-- Reduced bundle size to ~2.3 KB gzipped (40% smaller)
-- Simplified header management with normalized Headers class
-- Removed code duplication and unused constants
-- Better tree-shaking support
-
-**Bug Fixes:**
-- Fixed DEFAULT_HEADERS being applied to FormData and URLSearchParams (file uploads now work correctly)
-- Consistent error response handling across all error paths
-- Improved error classification
-
-## What's New in v2.0.0
-
-### Breaking Changes
-
-**Type Safety Improvements:**
-- All `any` types replaced with `unknown` for better type safety
-- You must now explicitly type your responses or provide type assertions
-
-**Config Protection:**
-- `api.config` is now readonly and returns a copy
-- Use setter methods like `setBaseURL()` instead of direct mutation
-
-### Features from v2.0.0
-
-**Transform & Monitor Management:**
-```typescript
-// Remove specific transforms/monitors
-const transform = (config) => { /* ... */ };
-api.addRequestTransform(transform);
-api.removeRequestTransform(transform);
-
-// Clear all transforms/monitors
+api.removeRequestTransform(fn);
 api.clearRequestTransforms();
-api.clearResponseTransforms();
-api.clearMonitors();
+
+// Preferred — return-based, removable by ID
+const id = api.interceptors.request.use((config) => ({
+  ...config,
+  headers: { ...config.headers, Authorization: `Bearer ${token}` },
+}));
+api.interceptors.request.eject(id);
 ```
 
-**Type Guards:**
-```typescript
-import { isOkResponse, isErrorResponse } from '@mshindi-labs/refetch';
-
-const response = await api.get<User>('/users/1');
-
-if (isOkResponse(response)) {
-  // TypeScript knows response.data is User
-  console.log(response.data.name);
-}
-
-if (isErrorResponse(response)) {
-  // TypeScript knows this is an error
-  console.log(response.problem);
-}
-```
-
-**Better Error Messages:**
-- Errors now include HTTP method and full URL
-- Example: `HTTP GET https://api.example.com/users failed with status 404: Not Found`
-
-**Improved URL Handling:**
-- Properly handles absolute URLs
-- Normalizes trailing/leading slashes
-- Better baseURL concatenation
-
-### Migration from v1.x
+## Integration with TanStack Query
 
 ```typescript
-// v1.x - implicit any types
-const response = await api.get('/users');
+import { useQuery, useMutation } from '@tanstack/react-query';
 
-// v2.x - explicit typing required
-const response = await api.get<User[]>('/users');
+function useUser(id: string) {
+  return useQuery({
+    queryKey: ['user', id],
+    queryFn: async () => {
+      const response = await api.get<User>(`/users/${id}`);
+      if (!response.ok) throw new Error(response.problem ?? 'Failed');
+      return response.data;
+    },
+  });
+}
 
-// v1.x - direct config mutation
-api.config.timeout = 5000;
-
-// v2.x - use setter methods
-// (config is now readonly)
+function useCreateUser() {
+  return useMutation({
+    mutationFn: async (dto: CreateUserDto) => {
+      const response = await api.post<User, CreateUserDto>('/users', dto);
+      if (!response.ok) throw new Error(response.problem ?? 'Failed');
+      return response.data;
+    },
+  });
+}
 ```
 
-## Contributing
+## Why Refetch?
 
-Contributions are welcome! Please read [CONTRIBUTING.md](https://github.com/mshindi-labs/refetch/blob/main/CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+| | refetch | axios | apisauce |
+|---|---|---|---|
+| Native `fetch` | ✅ | ❌ (XHR) | ❌ (wraps axios) |
+| Pure functional TS | ✅ | ❌ (class-based) | ❌ |
+| Tree-shakeable | ✅ | ❌ | ❌ (CJS only) |
+| Discriminated error union | ✅ | ❌ | ❌ |
+| Built-in retry | ✅ | ❌ | ❌ |
+| Built-in streaming | ✅ | limited | ❌ |
+| Bundle size | ~12 KB ESM | ~60 KB | ~10 KB + axios |
+| Runtime dependencies | 0 | 0 | axios |
+
+## Migration from v2
+
+**Interceptors replace transforms** (transforms still work, but are deprecated):
+
+```typescript
+// v2
+api.addRequestTransform((config) => { config.headers = { ...config.headers, 'X-Key': 'v' }; });
+
+// v3 — return-based, eject by ID
+const id = api.interceptors.request.use((config) => ({
+  ...config,
+  headers: { ...config.headers, 'X-Key': 'v' },
+}));
+```
+
+**Body generics on POST/PUT/PATCH:**
+
+```typescript
+// v2
+const r = await api.post<User>('/users', data);
+
+// v3 — body type explicit
+const r = await api.post<User, CreateUserDto>('/users', dto);
+```
+
+**RetryConfig:**
+
+```typescript
+// v3 — per-request retry
+const r = await api.get('/data', undefined, { retry: 3 });
+```
+
+**Content-Type is no longer in default headers.** It is now set automatically based on body type. Remove manual `Content-Type: application/json` from your instance headers — it will be set correctly for each body type automatically.
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/mshindi-labs/refetch/blob/main/LICENSE) file for details.
+MIT

@@ -1,10 +1,9 @@
 # Contributing to Refetch
 
-Thank you for your interest in contributing to Refetch! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to `@mshindi-labs/refetch`! This document covers setup, conventions, and the PR process.
 
 ## Table of Contents
 
-- [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Project Structure](#project-structure)
@@ -14,10 +13,6 @@ Thank you for your interest in contributing to Refetch! This document provides g
 - [Submitting Changes](#submitting-changes)
 - [Release Process](#release-process)
 
-## Code of Conduct
-
-By participating in this project, you agree to maintain a respectful and inclusive environment for all contributors. Please be considerate, constructive, and professional in all interactions.
-
 ## Getting Started
 
 ### Prerequisites
@@ -25,47 +20,41 @@ By participating in this project, you agree to maintain a respectful and inclusi
 - Node.js 18.0.0 or higher
 - npm (comes with Node.js)
 - Git
-- A GitHub account
 
-### Finding Issues to Work On
+### Finding Issues
 
 - Check the [Issues](../../issues) page for open issues
-- Look for issues labeled `good first issue` if you're new to the project
-- Look for issues labeled `help wanted` for items we'd especially like contributions on
-- Feel free to propose new features or improvements by opening an issue first
+- `good first issue` — good entry points for new contributors
+- `help wanted` — items we especially want help with
+- Open an issue before working on a significant feature or breaking change
 
 ## Development Setup
 
-1. **Fork the repository**
+1. **Fork and clone**
    ```bash
-   # Click the "Fork" button on GitHub
+   git clone https://github.com/YOUR_USERNAME/refetch.git
+   cd refetch
    ```
 
-2. **Clone your fork**
+2. **Add upstream remote**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/library.git
-   cd library/refetch
+   git remote add upstream https://github.com/mshindi-labs/refetch.git
    ```
 
-3. **Add upstream remote**
-   ```bash
-   git remote add upstream https://github.com/mshindi-labs/library.git
-   ```
-
-4. **Install dependencies**
+3. **Install dependencies**
    ```bash
    npm install
    ```
 
-5. **Build the project**
+4. **Build**
    ```bash
    npm run build
+   # Produces dist/ — index, retry, middleware, pipe (ESM + CJS + .d.ts)
    ```
 
-6. **Verify your setup**
+5. **Type check**
    ```bash
-   # Check that the build output exists
-   ls -la dist/
+   npx tsc --noEmit
    ```
 
 ## Project Structure
@@ -73,199 +62,145 @@ By participating in this project, you agree to maintain a respectful and inclusi
 ```
 refetch/
 ├── src/
-│   ├── index.ts          # Main entry point and exports
-│   ├── refetch.ts        # Core create() function and instance methods
-│   ├── types.ts          # TypeScript type definitions
-│   ├── constants.ts      # Constants and configuration
-│   └── utils.ts          # Utility functions
-├── dist/                 # Build output (generated)
-├── README.md            # User-facing documentation
-├── CLAUDE.md            # Claude Code guidance
+│   ├── index.ts         # All public exports
+│   ├── refetch.ts       # create() factory — pipeline, retry loop, stream(), transform aliases
+│   ├── types.ts         # All types: ApiResponse, RefetchError, RetryConfig, RefetchInstance, ...
+│   ├── errors.ts        # CancelError, createCancelToken, classifyProblem, buildRefetchError
+│   ├── interceptors.ts  # createInterceptorManager — Map-based, auto-increment IDs
+│   ├── retry.ts         # normalizeRetryConfig, getRetryDelay, shouldRetry, sleep
+│   ├── middleware.ts    # withAuth, withTimeout, withHeaders, withBaseURL, withLogging
+│   ├── pipe.ts          # pipe() HOF
+│   ├── body.ts          # prepareRequestBody, getBodyContentType, shouldHaveBody, JSON_LIKE_RE
+│   ├── response.ts      # parseResponseBody, normalizeSuccessResponse, normalizeErrorResponse
+│   ├── headers.ts       # mergeHeaders, headersToObject
+│   ├── url.ts           # buildUrl, buildQueryString
+│   ├── fetch.ts         # fetchWithTimeout
+│   └── constants.ts     # STATUS_RANGES, DEFAULT_TIMEOUT, DEFAULT_HEADERS
+├── dist/                # Build output (generated — do not edit)
+├── README.md
+├── CLAUDE.md            # Claude Code guidance (architecture reference)
 ├── CONTRIBUTING.md      # This file
-├── LICENSE              # MIT license
-├── package.json         # Package configuration
-├── tsconfig.json        # TypeScript configuration
-└── tsup.config.ts       # Build configuration
+├── LICENSE
+├── package.json
+├── tsconfig.json
+└── tsup.config.ts       # 4 entry points: index, retry, middleware, pipe
 ```
 
 ### Key Files
 
-- **src/refetch.ts**: Contains the main `create()` factory function and all HTTP method implementations
-- **src/types.ts**: All TypeScript interfaces, types, and the PROBLEM_CODE enum
-- **src/utils.ts**: Helper functions for URL building, header merging, response parsing, etc.
-- **src/constants.ts**: Shared constants like default timeout, status code ranges, and error messages
+- **`src/refetch.ts`** — The `create()` factory. All HTTP method wrappers, the interceptor pipeline, retry loop, `stream()`, and deprecated transform aliases live here. State is closure-based (no `this`).
+- **`src/types.ts`** — Single source of truth for all types. `RefetchError` discriminated union and `RetryConfig` are here. Do not define shared types elsewhere.
+- **`src/errors.ts`** — Error construction. `buildRefetchError` maps a raw `Error` + HTTP status to the correct `RefetchError` variant. `CancelError` and `createCancelToken` are here, not in `interceptors.ts`.
+- **`src/body.ts`** — Body preparation and `Content-Type` detection. `DEFAULT_HEADERS` intentionally has no `Content-Type` — it is set here per body type.
+- **`src/response.ts`** — Response parsing. Uses `JSON_LIKE_RE` from `body.ts` for `+json` suffix detection. Handles empty bodies, binary types, form-encoded, and JSON.
 
 ## Development Workflow
 
 ### Creating a Branch
 
-Always create a new branch for your work:
-
 ```bash
-# Update your main branch
 git checkout main
 git pull upstream main
-
-# Create a new branch
-git checkout -b feature/your-feature-name
-# or
-git checkout -b fix/issue-description
+git checkout -b feature/your-feature   # or fix/, docs/, refactor/
 ```
-
-Branch naming conventions:
-- `feature/` - New features
-- `fix/` - Bug fixes
-- `docs/` - Documentation updates
-- `refactor/` - Code refactoring
-- `perf/` - Performance improvements
 
 ### Making Changes
 
-1. **Make your changes** in the appropriate files
-2. **Build the project** to ensure it compiles:
-   ```bash
-   npm run build
-   ```
-3. **Test your changes** manually (see [Testing Guidelines](#testing-guidelines))
-4. **Check TypeScript types**:
+1. Edit the appropriate module — keep single responsibility per file
+2. **Type check** after every significant change:
    ```bash
    npx tsc --noEmit
+   ```
+3. **Build** to verify the dist output:
+   ```bash
+   npm run build
    ```
 
 ### Keeping Your Branch Updated
 
 ```bash
-# Fetch upstream changes
 git fetch upstream
-
-# Rebase your branch on upstream/main
 git rebase upstream/main
-
-# If there are conflicts, resolve them and continue
-git rebase --continue
 ```
 
 ## Coding Standards
 
-### TypeScript Guidelines
+### TypeScript
 
-1. **Use strict TypeScript**
-   - The project uses `strict: true` in tsconfig.json
-   - Avoid using `any` types unless absolutely necessary
-   - Prefer interfaces for objects, types for unions/intersections
-
-2. **Follow existing patterns**
-   - Match the code style of the file you're editing
-   - Use the same naming conventions
-   - Follow the existing architecture (closures for state, sequential transforms, etc.)
-
-3. **Type safety**
-   - All public APIs must be properly typed
-   - Use generics where appropriate (e.g., `ApiResponse<T>`)
-   - Ensure type inference works correctly for consumers
+1. **Pure functional** — no classes with `this`. Error subclasses (`CancelError`) are the only exception.
+2. **No `any`** — use `unknown` with type guards, or generics.
+3. **Single responsibility** — each module owns exactly one concern. Do not add utilities to `refetch.ts` or `types.ts` that belong in a lower-level module.
+4. **Return-based over mutation** — interceptors must return the modified value. Mutation is only permitted in the deprecated transform aliases (for backward compat).
+5. **No circular imports** — `types.ts` has no imports from other `src/` files. `errors.ts` imports only from `types.ts`.
 
 ### Code Style
 
-1. **Formatting**
-   - Use 2 spaces for indentation (not tabs)
-   - Use single quotes for strings
-   - Add trailing commas in multi-line objects/arrays
-   - Keep lines under 80-100 characters when reasonable
+- 2-space indentation, single quotes, trailing commas
+- Lines under 100 characters
+- `camelCase` for functions/variables, `PascalCase` for types/interfaces, `UPPER_CASE` for constants
+- No comments unless the *why* is non-obvious (not the what)
+- No multi-line docblocks on internal functions
 
-2. **Naming conventions**
-   - `camelCase` for variables, functions, and methods
-   - `PascalCase` for types, interfaces, and enums
-   - `UPPER_CASE` for constants
-   - Descriptive names that convey purpose
+### Architecture Constraints
 
-3. **Documentation**
-   - Add JSDoc comments for all exported functions, types, and interfaces
-   - Include `@param` and `@returns` tags
-   - Provide usage examples for complex features
-   - Update README.md if adding user-facing features
-
-### Example Code
-
-```typescript
-/**
- * Classify the problem based on status code or error
- *
- * @param status - HTTP status code (if available)
- * @param error - JavaScript Error object (if available)
- * @returns PROBLEM_CODE enum value indicating the error type
- */
-export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
-  // Implementation...
-}
-```
+- `DEFAULT_HEADERS` must never include `Content-Type` — it is set per-request by `getBodyContentType`
+- FormData requests must always have `Content-Type` deleted after header merge — the browser sets the boundary
+- Request interceptors run **once** before the retry loop; do not move them inside `executeSingleRequest`
+- `stream()` must not parse the response body and must not retry
 
 ## Testing Guidelines
 
-Currently, the project does not have an automated test suite. When making changes, please test manually:
+No automated test suite is configured yet. Until one is added:
 
-### Manual Testing Checklist
+1. **Type check passes** — `npx tsc --noEmit` with zero errors
+2. **Build passes** — `npm run build` produces all 8 files (4 ESM + 4 CJS) plus type declarations
 
-1. **Build succeeds**
-   ```bash
-   npm run build
-   ```
+### Ad-hoc Smoke Testing
 
-2. **Type checking passes**
-   ```bash
-   npx tsc --noEmit
-   ```
+```typescript
+// test-local.ts (not committed)
+import { create, PROBLEM_CODE, createCancelToken } from './src/index.ts';
+import { pipe } from './src/pipe.ts';
+import { withAuth, withLogging } from './src/middleware.ts';
 
-3. **Create a test file** (not committed) to verify your changes:
-   ```typescript
-   // test-local.ts
-   import { create, PROBLEM_CODE } from './src/index';
+const api = pipe(
+  create({ baseURL: 'https://jsonplaceholder.typicode.com', timeout: 5000 }),
+  withLogging(),
+);
 
-   const api = create({
-     baseURL: 'https://jsonplaceholder.typicode.com',
-   });
+const response = await api.get('/posts/1');
+console.log(response.ok, response.data);
+```
 
-   // Test your changes here
-   async function test() {
-     const response = await api.get('/posts/1');
-     console.log(response);
-   }
+```bash
+npx tsx test-local.ts
+```
 
-   test();
-   ```
+### Manual Checklist
 
-4. **Run your test file**
-   ```bash
-   npx tsx test-local.ts
-   ```
+- Basic HTTP methods: GET, POST, PUT, PATCH, DELETE, HEAD
+- Interceptor add / eject / clear
+- Retry with a mock server (3 failures then success)
+- Cancellation via `createCancelToken`
+- `stream()` on a binary or text endpoint
+- `pipe()` with `withAuth` + `withLogging`
+- FormData upload (confirm no `Content-Type` is sent)
+- TypeScript generics infer correctly: `post<User, CreateDto>`
+- Both `response.problem` and `response.error.kind` are correct on error paths
 
-### What to Test
+### Adding a Test Suite
 
-When making changes, verify:
+We welcome contributions to add automated testing:
 
-- ✅ Basic HTTP methods work (GET, POST, PUT, PATCH, DELETE, HEAD)
-- ✅ Request transforms are applied correctly
-- ✅ Response transforms are applied correctly
-- ✅ Monitors are called appropriately
-- ✅ Error classification works (network errors, timeouts, HTTP errors)
-- ✅ TypeScript types are correct and infer properly
-- ✅ Both ESM and CommonJS builds work
-- ✅ Backward compatibility is maintained (no breaking changes without major version bump)
-
-### Future: Automated Testing
-
-We welcome contributions to add automated testing! If you'd like to help set up a test suite:
-
-- Consider using Vitest or Jest
-- Focus on unit tests for utility functions first
-- Add integration tests for the main API
-- Include edge cases and error scenarios
-- Mock fetch API responses
+- Vitest is the preferred runner (ESM-native, fast)
+- Unit test each utility module (`url.ts`, `body.ts`, `response.ts`, `retry.ts`) independently
+- Integration tests for the `create()` pipeline using `vi.spyOn(globalThis, 'fetch')`
+- Include error paths: network failure, timeout, cancel, parse error
+- Test both `PROBLEM_CODE` and `RefetchError.kind` for each error scenario
 
 ## Submitting Changes
 
 ### Commit Messages
-
-Write clear, descriptive commit messages following this format:
 
 ```
 <type>: <subject>
@@ -275,120 +210,51 @@ Write clear, descriptive commit messages following this format:
 <footer>
 ```
 
-**Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `refactor`: Code refactoring
-- `perf`: Performance improvements
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks
+Types: `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `chore`
 
-**Example:**
-
+Example:
 ```
-feat: add retry mechanism for failed requests
+feat: add exponential backoff to retry delay
 
-Implement automatic retry logic with exponential backoff for
-network errors and 5xx server errors. Configurable via new
-`retries` and `retryDelay` options in RefetchConfig.
+Support a function form for `RetryConfig.delay` so callers can implement
+exponential backoff or jitter. Fixed delay (number) is unchanged.
 
-- Add retry logic to request function
-- Add new config options with defaults
-- Update types and documentation
-- Maintain backward compatibility
-
-Closes #123
+Closes #42
 ```
 
 ### Pull Request Process
 
-1. **Push your branch** to your fork:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-2. **Create a Pull Request** on GitHub:
-   - Go to your fork on GitHub
-   - Click "New Pull Request"
-   - Select your branch
-   - Fill out the PR template (if available)
-
-3. **PR Title**: Use the same format as commit messages
-   ```
-   feat: add retry mechanism for failed requests
-   ```
-
-4. **PR Description**: Include:
-   - What changes you made and why
-   - How you tested the changes
-   - Any breaking changes
-   - Related issues (use "Closes #123" to auto-close)
-   - Screenshots/examples if relevant
-
-5. **Ensure CI passes** (when implemented)
-
-6. **Respond to feedback**: Be open to suggestions and iterate on your changes
-
-### PR Review Process
-
-- Maintainers will review your PR as soon as possible
-- Address any requested changes
-- Once approved, a maintainer will merge your PR
-- Your contribution will be included in the next release!
+1. Push your branch and open a PR against `main`
+2. PR title: same format as commit messages
+3. PR description should include:
+   - What changed and why
+   - How you tested it
+   - Any breaking changes (requires major version bump)
+   - Related issue(s)
+4. Ensure `npx tsc --noEmit` and `npm run build` both pass
+5. Address review feedback and iterate
 
 ## Release Process
 
-This section is primarily for maintainers, but contributors should understand how releases work:
+Releases follow [Semantic Versioning](https://semver.org/):
 
-### Version Numbering
+- **MAJOR** — breaking API changes
+- **MINOR** — new backward-compatible features
+- **PATCH** — bug fixes
 
-We follow [Semantic Versioning](https://semver.org/):
+Release steps (maintainers):
 
-- **MAJOR** (1.0.0): Breaking changes
-- **MINOR** (0.1.0): New features (backward compatible)
-- **PATCH** (0.0.1): Bug fixes (backward compatible)
+```bash
+npm version patch   # or minor / major — updates package.json and creates a git tag
+npm run build       # verify dist/
+npm publish --access public
+# Create a GitHub release with changelog notes
+```
 
-### Release Steps (Maintainers)
+## Questions?
 
-1. Update version in package.json:
-   ```bash
-   npm version patch  # or minor, or major
-   ```
-
-2. Update CHANGELOG.md (when created)
-
-3. Create a git tag:
-   ```bash
-   git tag v1.0.1
-   ```
-
-4. Push changes and tags:
-   ```bash
-   git push origin main --tags
-   ```
-
-5. Publish to npm:
-   ```bash
-   npm publish --access public
-   ```
-
-6. Create a GitHub release with notes
-
-## Questions or Need Help?
-
-- Open an issue for questions about contributing
-- Reach out to maintainers via GitHub discussions (when enabled)
-- Check existing issues and PRs for similar questions
-
-## Recognition
-
-All contributors will be recognized in the project. Your contributions, whether code, documentation, or bug reports, are valuable and appreciated!
+Open an issue or start a GitHub discussion. All contributions — code, documentation, bug reports — are appreciated.
 
 ## License
 
-By contributing to Refetch, you agree that your contributions will be licensed under the MIT License.
-
----
-
-Thank you for contributing to Refetch! 🚀
+By contributing, you agree your changes will be licensed under the MIT License.

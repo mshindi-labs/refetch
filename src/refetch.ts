@@ -11,132 +11,120 @@ import {
   PROBLEM_CODE,
 } from './types';
 import { DEFAULT_HEADERS } from './constants';
-
+import { createInterceptorManager } from './interceptors';
+import { buildUrl } from './url';
+import { mergeHeaders } from './headers';
+import { prepareRequestBody, shouldHaveBody, getBodyContentType } from './body';
+import { fetchWithTimeout } from './fetch';
 import {
-  buildUrl,
-  mergeHeaders,
-  fetchWithTimeout,
   parseResponseBody,
   normalizeSuccessResponse,
   normalizeErrorResponse,
-  prepareRequestBody,
-  shouldHaveBody,
-} from './utils';
+} from './response';
+import {
+  normalizeRetryConfig,
+  getRetryDelay,
+  shouldRetry,
+  sleep,
+} from './retry';
 
-/**
- * Create a new refetch instance
- */
 export function create(config: RefetchConfig = {}): RefetchInstance {
-  // Normalize headers to Headers class for internal use
   const normalizedConfig = { ...config };
   if (normalizedConfig.headers) {
     if (!(normalizedConfig.headers instanceof Headers)) {
-      normalizedConfig.headers = new Headers(normalizedConfig.headers as HeadersInit);
+      normalizedConfig.headers = new Headers(
+        normalizedConfig.headers as HeadersInit,
+      );
     }
   } else {
     normalizedConfig.headers = new Headers();
   }
 
-  // Internal state
   const state = {
     config: normalizedConfig,
-    requestTransforms: [] as Array<RequestTransform | AsyncRequestTransform>,
-    responseTransforms: [] as Array<ResponseTransform | AsyncResponseTransform>,
     monitors: [] as Monitor[],
+    requestInterceptors: createInterceptorManager<RequestConfig>(),
+    responseInterceptors: createInterceptorManager<ApiResponse<unknown>>(),
   };
 
-  /**
-   * Apply all request transforms to the config
-   */
-  async function applyRequestTransforms(
-    requestConfig: RequestConfig,
-  ): Promise<void> {
-    for (const transform of state.requestTransforms) {
-      await transform(requestConfig);
+  // Maps original transform fn → interceptor ID for reference-based removal
+  const requestTransformIds = new Map<Function, number>();
+  const responseTransformIds = new Map<Function, number>();
+
+  // ─── Interceptor pipeline ───────────────────────────────────────────────
+
+  async function applyRequestInterceptors(
+    config: RequestConfig,
+  ): Promise<RequestConfig> {
+    const handlers = [...state.requestInterceptors.getAll()].reverse(); // LIFO
+    if (handlers.length === 0) return config;
+    let chain = Promise.resolve(config);
+    for (const handler of handlers) {
+      chain = chain.then(handler.onFulfilled, handler.onRejected);
     }
+    return chain;
   }
 
-  /**
-   * Apply all response transforms to the response
-   */
-  async function applyResponseTransforms<T>(
+  async function applyResponseInterceptors<T>(
     response: ApiResponse<T>,
-  ): Promise<void> {
-    for (const transform of state.responseTransforms) {
-      await transform(response);
+  ): Promise<ApiResponse<T>> {
+    const handlers = state.responseInterceptors.getAll(); // FIFO
+    if (handlers.length === 0) return response;
+    let chain = Promise.resolve(response as ApiResponse<unknown>);
+    for (const handler of handlers) {
+      chain = chain.then(handler.onFulfilled, handler.onRejected);
+    }
+    try {
+      return (await chain) as ApiResponse<T>;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      return normalizeErrorResponse<T>(err, undefined, response.duration);
     }
   }
 
-  /**
-   * Notify all monitors about the response
-   */
   function notifyMonitors<T>(response: ApiResponse<T>): void {
     state.monitors.forEach((monitor) => {
       try {
         monitor(response);
       } catch (error) {
-        // Silently catch monitor errors to prevent breaking the request flow
         console.error('Monitor error:', error);
       }
     });
   }
 
-  /**
-   * Make an HTTP request
-   */
-  async function request<T = unknown>(
-    method: string,
-    url: string,
-    dataOrParams?: unknown,
-    requestConfig: RequestConfig = {},
+  // ─── Single attempt ─────────────────────────────────────────────────────
+
+  async function executeSingleRequest<T>(
+    config: RequestConfig,
+    startTime: number,
   ): Promise<ApiResponse<T>> {
-    const startTime = Date.now();
-
     try {
-      // Merge configurations
-      const config: RequestConfig = {
-        ...state.config,
-        ...requestConfig,
-        url,
-        method: method.toUpperCase(),
-      };
-
-      // Handle data vs params based on method
-      if (shouldHaveBody(method)) {
-        config.data = dataOrParams;
-      } else {
-        config.params = dataOrParams as Record<string, unknown> | undefined;
-      }
-
-      // Apply request transforms
-      await applyRequestTransforms(config);
-
-      // Build the URL
+      const url = config.url ?? '';
       const fullUrl = buildUrl(
         config.baseURL || state.config.baseURL,
         url,
         config.params,
       );
 
-      // Prepare the request body
-      const body = shouldHaveBody(method)
+      const body = shouldHaveBody(config.method ?? 'GET')
         ? prepareRequestBody(config.data)
         : undefined;
 
-      // Conditionally apply DEFAULT_HEADERS based on body type
-      // Skip JSON headers for FormData and URLSearchParams
-      const shouldApplyDefaultHeaders =
-        !body || (!(body instanceof FormData) && !(body instanceof URLSearchParams));
-
+      // Always merge Accept from defaults; Content-Type is set per body type below
       const headers = mergeHeaders(
-        shouldApplyDefaultHeaders ? DEFAULT_HEADERS : undefined,
+        DEFAULT_HEADERS,
         state.config.headers,
         config.headers,
       );
 
-      // Make the fetch request with timeout
-      // Note: Spread config first, then override with our processed values
-      // to prevent config.headers from overriding our merged headers
+      const bodyContentType = getBodyContentType(body);
+      if (bodyContentType === null) {
+        // FormData: browser must set Content-Type with multipart boundary
+        headers.delete('Content-Type');
+      } else if (bodyContentType !== undefined && !headers.has('Content-Type')) {
+        headers.set('Content-Type', bodyContentType);
+      }
+
       const fetchConfig: RequestInit & { timeout?: number } = {
         ...config,
         method: config.method,
@@ -148,54 +136,85 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       const response = await fetchWithTimeout(fullUrl, fetchConfig);
       const duration = Date.now() - startTime;
 
-      // Parse response body
       const data = await parseResponseBody<T>(response);
 
-      // Check if response is ok
-      const isOk = response.ok;
-
-      // Create normalized response
       let apiResponse: ApiResponse<T>;
-
-      if (isOk) {
+      if (response.ok) {
         apiResponse = normalizeSuccessResponse(data as T, response, duration);
       } else {
         const error = new Error(
           `HTTP ${config.method} ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
         );
         apiResponse = normalizeErrorResponse<T>(error, response, duration);
-        // Preserve the parsed data for error responses
         apiResponse.data = data as T;
       }
 
-      // Apply response transforms
-      await applyResponseTransforms(apiResponse);
-
-      // Notify monitors
+      apiResponse = await applyResponseInterceptors(apiResponse);
       notifyMonitors(apiResponse);
-
       return apiResponse;
     } catch (error) {
       const duration = Date.now() - startTime;
-      const apiResponse = normalizeErrorResponse<T>(
+      let apiResponse = normalizeErrorResponse<T>(
         error as Error,
         undefined,
         duration,
       );
-
-      // Apply response transforms even for errors
-      await applyResponseTransforms(apiResponse);
-
-      // Notify monitors
+      apiResponse = await applyResponseInterceptors(apiResponse);
       notifyMonitors(apiResponse);
-
       return apiResponse;
     }
   }
 
-  /**
-   * GET request
-   */
+  // ─── Core request (with retry) ──────────────────────────────────────────
+
+  async function request<T = unknown>(
+    method: string,
+    url: string,
+    dataOrParams?: unknown,
+    requestConfig: RequestConfig = {},
+  ): Promise<ApiResponse<T>> {
+    const startTime = Date.now();
+
+    let config: RequestConfig = {
+      ...state.config,
+      ...requestConfig,
+      url,
+      method: method.toUpperCase(),
+    };
+
+    if (shouldHaveBody(method)) {
+      config.data = dataOrParams;
+    } else {
+      config.params = dataOrParams as Record<string, unknown> | undefined;
+    }
+
+    // Request interceptors run once before any retry
+    config = await applyRequestInterceptors(config);
+
+    const retryConfig = normalizeRetryConfig(
+      config.retry ?? state.config.retry,
+    );
+    let attempt = 0;
+    let lastResponse!: ApiResponse<T>;
+
+    do {
+      if (attempt > 0 && retryConfig) {
+        await sleep(getRetryDelay(retryConfig, attempt));
+        retryConfig.onRetry?.(attempt, lastResponse);
+      }
+      lastResponse = await executeSingleRequest<T>(config, startTime);
+      attempt++;
+    } while (
+      retryConfig !== null &&
+      attempt < retryConfig.attempts &&
+      shouldRetry(lastResponse, retryConfig)
+    );
+
+    return lastResponse;
+  }
+
+  // ─── HTTP method wrappers ────────────────────────────────────────────────
+
   function get<T = unknown>(
     url: string,
     params?: Record<string, unknown>,
@@ -204,42 +223,30 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return request<T>('GET', url, params, config);
   }
 
-  /**
-   * POST request
-   */
-  function post<T = unknown>(
+  function post<TResponse = unknown, TBody = unknown>(
     url: string,
-    data?: unknown,
+    data?: TBody,
     config?: RequestConfig,
-  ): Promise<ApiResponse<T>> {
-    return request<T>('POST', url, data, config);
+  ): Promise<ApiResponse<TResponse>> {
+    return request<TResponse>('POST', url, data, config);
   }
 
-  /**
-   * PUT request
-   */
-  function put<T = unknown>(
+  function put<TResponse = unknown, TBody = unknown>(
     url: string,
-    data?: unknown,
+    data?: TBody,
     config?: RequestConfig,
-  ): Promise<ApiResponse<T>> {
-    return request<T>('PUT', url, data, config);
+  ): Promise<ApiResponse<TResponse>> {
+    return request<TResponse>('PUT', url, data, config);
   }
 
-  /**
-   * PATCH request
-   */
-  function patch<T = unknown>(
+  function patch<TResponse = unknown, TBody = unknown>(
     url: string,
-    data?: unknown,
+    data?: TBody,
     config?: RequestConfig,
-  ): Promise<ApiResponse<T>> {
-    return request<T>('PATCH', url, data, config);
+  ): Promise<ApiResponse<TResponse>> {
+    return request<TResponse>('PATCH', url, data, config);
   }
 
-  /**
-   * DELETE request
-   */
   function deleteRequest<T = unknown>(
     url: string,
     params?: Record<string, unknown>,
@@ -248,9 +255,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return request<T>('DELETE', url, params, config);
   }
 
-  /**
-   * HEAD request
-   */
   function head<T = unknown>(
     url: string,
     params?: Record<string, unknown>,
@@ -259,9 +263,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return request<T>('HEAD', url, params, config);
   }
 
-  /**
-   * LINK request
-   */
   function link<T = unknown>(
     url: string,
     params?: Record<string, unknown>,
@@ -270,9 +271,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return request<T>('LINK', url, params, config);
   }
 
-  /**
-   * UNLINK request
-   */
   function unlink<T = unknown>(
     url: string,
     params?: Record<string, unknown>,
@@ -281,9 +279,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return request<T>('UNLINK', url, params, config);
   }
 
-  /**
-   * Generic request for any HTTP method
-   */
   function any<T = unknown>(config: RequestConfig): Promise<ApiResponse<T>> {
     const method = config.method || 'GET';
     const url = config.url || '/';
@@ -291,33 +286,147 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return request<T>(method, url, dataOrParams, config);
   }
 
-  /**
-   * Add a request transform
-   */
+  // ─── Streaming ──────────────────────────────────────────────────────────
+
+  async function stream<T = Uint8Array>(
+    url: string,
+    params?: Record<string, unknown>,
+    config: RequestConfig = {},
+  ): Promise<ApiResponse<ReadableStream<T>>> {
+    const startTime = Date.now();
+
+    let mergedConfig: RequestConfig = {
+      ...state.config,
+      ...config,
+      url,
+      method: 'GET',
+      params,
+    };
+
+    mergedConfig = await applyRequestInterceptors(mergedConfig);
+
+    const fullUrl = buildUrl(
+      mergedConfig.baseURL || state.config.baseURL,
+      mergedConfig.url || url,
+      mergedConfig.params,
+    );
+
+    const headers = mergeHeaders(
+      DEFAULT_HEADERS,
+      state.config.headers,
+      mergedConfig.headers,
+    );
+
+    try {
+      const response = await fetchWithTimeout(fullUrl, {
+        ...mergedConfig,
+        method: 'GET',
+        headers,
+        timeout: mergedConfig.timeout ?? state.config.timeout,
+      });
+      const duration = Date.now() - startTime;
+
+      if (!response.ok) {
+        const error = new Error(
+          `HTTP GET ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
+        );
+        return normalizeErrorResponse(
+          error,
+          response,
+          duration,
+        ) as ApiResponse<ReadableStream<T>>;
+      }
+
+      if (!response.body) {
+        const error = new Error(
+          'Response body is null — streaming not supported in this environment',
+        );
+        return normalizeErrorResponse(
+          error,
+          response,
+          duration,
+        ) as ApiResponse<ReadableStream<T>>;
+      }
+
+      return normalizeSuccessResponse(
+        response.body as ReadableStream<T>,
+        response,
+        duration,
+      );
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      return normalizeErrorResponse(
+        error as Error,
+        undefined,
+        duration,
+      ) as ApiResponse<ReadableStream<T>>;
+    }
+  }
+
+  // ─── Transform aliases (backward compat) ────────────────────────────────
+
   function addRequestTransform(
     transform: RequestTransform | AsyncRequestTransform,
   ): void {
     if (typeof transform !== 'function') {
       throw new TypeError('Request transform must be a function');
     }
-    state.requestTransforms.push(transform);
+    const id = state.requestInterceptors.use(async (config) => {
+      await transform(config);
+      return config;
+    });
+    requestTransformIds.set(transform, id);
   }
 
-  /**
-   * Add a response transform
-   */
   function addResponseTransform(
     transform: ResponseTransform | AsyncResponseTransform,
   ): void {
     if (typeof transform !== 'function') {
       throw new TypeError('Response transform must be a function');
     }
-    state.responseTransforms.push(transform);
+    const id = state.responseInterceptors.use(async (response) => {
+      await (transform as ResponseTransform)(response);
+      return response;
+    });
+    responseTransformIds.set(transform, id);
   }
 
-  /**
-   * Add a monitor
-   */
+  function removeRequestTransform(
+    transform: RequestTransform | AsyncRequestTransform,
+  ): boolean {
+    const id = requestTransformIds.get(transform);
+    if (id !== undefined) {
+      state.requestInterceptors.eject(id);
+      requestTransformIds.delete(transform);
+      return true;
+    }
+    return false;
+  }
+
+  function removeResponseTransform(
+    transform: ResponseTransform | AsyncResponseTransform,
+  ): boolean {
+    const id = responseTransformIds.get(transform);
+    if (id !== undefined) {
+      state.responseInterceptors.eject(id);
+      responseTransformIds.delete(transform);
+      return true;
+    }
+    return false;
+  }
+
+  function clearRequestTransforms(): void {
+    requestTransformIds.forEach((id) => state.requestInterceptors.eject(id));
+    requestTransformIds.clear();
+  }
+
+  function clearResponseTransforms(): void {
+    responseTransformIds.forEach((id) => state.responseInterceptors.eject(id));
+    responseTransformIds.clear();
+  }
+
+  // ─── Monitors ───────────────────────────────────────────────────────────
+
   function addMonitor(monitor: Monitor): void {
     if (typeof monitor !== 'function') {
       throw new TypeError('Monitor must be a function');
@@ -325,37 +434,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     state.monitors.push(monitor);
   }
 
-  /**
-   * Remove a specific request transform
-   */
-  function removeRequestTransform(
-    transform: RequestTransform | AsyncRequestTransform,
-  ): boolean {
-    const index = state.requestTransforms.indexOf(transform);
-    if (index > -1) {
-      state.requestTransforms.splice(index, 1);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Remove a specific response transform
-   */
-  function removeResponseTransform(
-    transform: ResponseTransform | AsyncResponseTransform,
-  ): boolean {
-    const index = state.responseTransforms.indexOf(transform);
-    if (index > -1) {
-      state.responseTransforms.splice(index, 1);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Remove a specific monitor
-   */
   function removeMonitor(monitor: Monitor): boolean {
     const index = state.monitors.indexOf(monitor);
     if (index > -1) {
@@ -365,70 +443,41 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     return false;
   }
 
-  /**
-   * Clear all request transforms
-   */
-  function clearRequestTransforms(): void {
-    state.requestTransforms = [];
-  }
-
-  /**
-   * Clear all response transforms
-   */
-  function clearResponseTransforms(): void {
-    state.responseTransforms = [];
-  }
-
-  /**
-   * Clear all monitors
-   */
   function clearMonitors(): void {
     state.monitors = [];
   }
 
-  /**
-   * Set a single header
-   */
+  // ─── Header / URL helpers ────────────────────────────────────────────────
+
   function setHeader(name: string, value: string): void {
-    // Headers are always normalized to Headers class now
     (state.config.headers as Headers).set(name, value);
   }
 
-  /**
-   * Set multiple headers
-   */
   function setHeaders(headers: Record<string, string>): void {
-    Object.entries(headers).forEach(([name, value]) => {
-      setHeader(name, value);
-    });
+    Object.entries(headers).forEach(([name, value]) => setHeader(name, value));
   }
 
-  /**
-   * Delete a header
-   */
   function deleteHeader(name: string): void {
-    // Headers are always normalized to Headers class now
     (state.config.headers as Headers).delete(name);
   }
 
-  /**
-   * Set base URL
-   */
   function setBaseURL(baseURL: string): void {
     state.config.baseURL = baseURL;
   }
 
-  /**
-   * Get base URL
-   */
   function getBaseURL(): string | undefined {
     return state.config.baseURL;
   }
 
-  // Return the instance
+  // ─── Public instance ─────────────────────────────────────────────────────
+
   return {
     get config(): Readonly<RefetchConfig> {
       return { ...state.config };
+    },
+    interceptors: {
+      request: state.requestInterceptors,
+      response: state.responseInterceptors,
     },
     get,
     post,
@@ -439,6 +488,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     link,
     unlink,
     any,
+    stream,
     addRequestTransform,
     addResponseTransform,
     addMonitor,

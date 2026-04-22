@@ -1,52 +1,5 @@
-/**
- * Refetch - A native fetch API wrapper inspired by apisauce
- *
- * @example
- * ```typescript
- * import { create } from '@/lib/refetch';
- *
- * const api = create({
- *   baseURL: 'https://api.example.com',
- *   headers: {
- *     'Content-Type': 'application/json',
- *   },
- *   timeout: 10000,
- * });
- *
- * // Add request transforms
- * api.addRequestTransform((request) => {
- *   request.headers = {
- *     ...request.headers,
- *     Authorization: `Bearer ${token}`,
- *   };
- * });
- *
- * // Add response transforms
- * api.addResponseTransform((response) => {
- *   if (response.data) {
- *     response.data = transformData(response.data);
- *   }
- * });
- *
- * // Add monitors
- * api.addMonitor((response) => {
- *   console.log('API Response:', response);
- * });
- *
- * // Make requests
- * const response = await api.get<User>('/users/1');
- * if (response.ok) {
- *   console.log('User:', response.data);
- * } else {
- *   console.error('Error:', response.problem);
- * }
- * ```
- */
-
-// Main factory function
 export { create } from './refetch';
 
-// Type exports
 export type {
   ApiResponse,
   ApiOkResponse,
@@ -59,28 +12,41 @@ export type {
   ResponseTransform,
   AsyncResponseTransform,
   Monitor,
+  InterceptorHandler,
+  InterceptorManager,
+  RefetchError,
+  RetryConfig,
 } from './types';
 
-// Enum exports
-export { PROBLEM_CODE } from './types';
+export { PROBLEM_CODE, isOkResponse, isErrorResponse } from './types';
 
-// Type guard exports
-export { isOkResponse, isErrorResponse } from './types';
+export { CancelError, createCancelToken, classifyProblem, buildRefetchError } from './errors';
 
-// Constant exports
+export {
+  normalizeRetryConfig,
+  getRetryDelay,
+  shouldRetry,
+  sleep,
+} from './retry';
+
+export { pipe } from './pipe';
+
+export {
+  withAuth,
+  withTimeout,
+  withHeaders,
+  withBaseURL,
+  withLogging,
+} from './middleware';
+
 export { STATUS_RANGES, DEFAULT_TIMEOUT } from './constants';
 
-// Utility exports
+export { buildUrl, buildQueryString } from './url';
+export { mergeHeaders, headersToObject } from './headers';
+export { prepareRequestBody, shouldHaveBody } from './body';
+export { fetchWithTimeout } from './fetch';
 export {
-  buildUrl,
-  mergeHeaders,
-  fetchWithTimeout,
   parseResponseBody,
   normalizeSuccessResponse,
   normalizeErrorResponse,
-  prepareRequestBody,
-  shouldHaveBody,
-  headersToObject,
-  classifyProblem,
-  buildQueryString,
-} from './utils';
+} from './response';

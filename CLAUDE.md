@@ -4,106 +4,140 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Refetch is a lightweight, apisauce-inspired HTTP client built on the native `fetch` API with full TypeScript support. It provides standardized response formats, request/response transforms, and error classification without the axios dependency.
+`@mshindi-labs/refetch` (v3.0.0) is a production-grade HTTP client built on native `fetch`. It is a pure functional TypeScript redesign — 14 single-responsibility modules, return-based interceptors, discriminated error union (`RefetchError`), built-in retry, streaming, and tree-shakeable sub-path exports. It is a modern alternative to axios and apisauce with zero runtime dependencies.
 
 ## Development Commands
 
-Since this is a library package without build scripts configured, there are currently no build, test, or lint commands defined in package.json. The library is meant to be consumed directly as TypeScript source files.
+```bash
+npm run build       # tsup — produces dist/ (ESM + CJS + .d.ts for 4 entry points)
+npx tsc --noEmit    # type check only, no output
+```
+
+No test runner is configured. Use `npx tsx <file>` for ad-hoc smoke tests.
 
 ## Architecture
 
-### Core Components
+### Module Layout (`src/`)
 
-**refetch.ts:77** - Main factory function `create()` that returns a `RefetchInstance`. This is the heart of the library where:
-- Request/response transform pipelines are managed
-- HTTP method wrappers (get, post, put, patch, delete, head) are defined
-- Configuration state is maintained in closures
-- Transform execution happens sequentially in the order they were added
+| File | Responsibility |
+|------|---------------|
+| `types.ts` | All public types: `PROBLEM_CODE`, `RefetchError`, `RetryConfig`, `ApiResponse`, `RefetchInstance`, interceptor types, transform types |
+| `constants.ts` | `STATUS_RANGES`, `DEFAULT_TIMEOUT`, `DEFAULT_HEADERS` (Accept only — no Content-Type) |
+| `errors.ts` | `CancelError`, `createCancelToken`, `classifyProblem`, `buildRefetchError` |
+| `url.ts` | `buildUrl`, `buildQueryString` |
+| `headers.ts` | `mergeHeaders`, `headersToObject` |
+| `body.ts` | `prepareRequestBody`, `shouldHaveBody`, `getBodyContentType`, `JSON_LIKE_RE` |
+| `response.ts` | `parseResponseBody`, `normalizeSuccessResponse`, `normalizeErrorResponse` |
+| `fetch.ts` | `fetchWithTimeout` — AbortController + signal merging + finally cleanup |
+| `interceptors.ts` | `createInterceptorManager` — Map-based, auto-increment IDs, `getAll()` |
+| `retry.ts` | `normalizeRetryConfig`, `getRetryDelay`, `shouldRetry`, `sleep` |
+| `middleware.ts` | `withAuth`, `withTimeout`, `withHeaders`, `withBaseURL`, `withLogging` |
+| `pipe.ts` | `pipe()` HOF |
+| `refetch.ts` | `create()` factory — pipeline, retry loop, stream(), transform aliases |
+| `index.ts` | All public exports |
 
-**types.ts** - Complete type definitions including:
-- `ApiResponse<T>` - Standardized response format with `ok`, `problem`, `data`, `status`, `headers`, `duration`
-- `PROBLEM_CODE` enum - Error classification system (CLIENT_ERROR, SERVER_ERROR, TIMEOUT_ERROR, etc.)
-- `RefetchInstance` - Public API interface
-- Transform function types - Both sync and async variants for request/response transforms
+`utils.ts` does not exist — it was dissolved into the six utility modules above.
 
-**utils.ts** - Utility functions that handle the low-level mechanics:
-- `fetchWithTimeout()` - Wraps native fetch with AbortController for timeout support
-- `classifyProblem()` - Maps HTTP status codes and error types to PROBLEM_CODE enum
-- `parseResponseBody()` - Content-type aware response parsing (JSON, text, blob)
-- `buildUrl()` - URL construction with query parameter serialization
-- `mergeHeaders()` - Combines headers from multiple sources (defaults, config, request-level)
+### Build Entry Points (`tsup.config.ts`)
 
-**constants.ts** - Shared constants including status code ranges, default timeout (10s), and error messages
+| Entry | Sub-path |
+|-------|----------|
+| `src/index.ts` | `@mshindi-labs/refetch` |
+| `src/retry.ts` | `@mshindi-labs/refetch/retry` |
+| `src/middleware.ts` | `@mshindi-labs/refetch/middleware` |
+| `src/pipe.ts` | `@mshindi-labs/refetch/pipe` |
 
-**index.ts** - Public API surface with exports
+### Request/Response Pipeline (`refetch.ts`)
 
-### Request/Response Flow
+1. HTTP method called (e.g., `api.get(url, params, config)`)
+2. Config merged: `{ ...state.config, ...requestConfig, url, method }`
+3. `shouldHaveBody` → assign `config.data` (body methods) or `config.params` (GET/HEAD/DELETE)
+4. **Request interceptors applied (LIFO)** — return-based, run **once before any retry**
+5. `normalizeRetryConfig` determines retry settings
+6. **Retry loop** (`do/while`):
+   - `prepareRequestBody(config.data)` → `BodyInit | undefined`
+   - `mergeHeaders(DEFAULT_HEADERS, instance, request)` → then `getBodyContentType` sets `Content-Type`
+   - FormData: `headers.delete('Content-Type')` — browser manages multipart boundary
+   - `buildUrl(baseURL, url, params)`
+   - `fetchWithTimeout` with AbortController
+   - `parseResponseBody` — content-type-aware (see below)
+   - `normalizeSuccessResponse` or `normalizeErrorResponse` + `buildRefetchError`
+   - **Response interceptors applied (FIFO)** — per attempt
+   - Monitors notified (fire-and-forget)
+   - `shouldRetry` check — repeat if configured
 
-1. **Request Phase** (refetch.ts:77-185):
-   - HTTP method called (e.g., `api.get()`)
-   - Request config merged: instance config → request config
-   - Request transforms applied sequentially (`applyRequestTransforms`)
-   - URL built with baseURL and query params
-   - Headers merged from defaults, instance, and request-level
-   - Body prepared based on content type
-   - Fetch executed with timeout via `fetchWithTimeout`
+### Content-Type Handling
 
-2. **Response Phase**:
-   - Response body parsed based on Content-Type header
-   - Response normalized to standard `ApiResponse<T>` format
-   - Success (200-299): `ok: true`, `problem: null`, data populated
-   - HTTP errors (400-599): `ok: false`, problem classified, error details included
-   - Response transforms applied sequentially (`applyResponseTransforms`)
-   - Monitors notified (fire-and-forget, errors caught and logged)
+`DEFAULT_HEADERS` contains **only** `Accept: application/json`. `Content-Type` is never in defaults — it is set per-request by `getBodyContentType(body)` in `body.ts`:
 
-3. **Error Handling**:
-   - Network errors, timeouts, and aborts caught in try-catch
-   - Errors classified via `classifyProblem()` to appropriate PROBLEM_CODE
-   - Error response normalized and passed through transform/monitor pipeline
-   - Original error always preserved in `originalError` field
+| Return value | Meaning |
+|---|---|
+| `null` | FormData — delete Content-Type so browser can set boundary |
+| `undefined` | No body — no Content-Type needed |
+| `string` | Set this value, only if caller hasn't already set Content-Type |
 
-### Transform System
+### Response Body Parsing (`response.ts`)
 
-Transforms modify requests before sending or responses after receiving. They run **sequentially** in the order added:
+`parseResponseBody` routes by MIME type (stripped of parameters) from `Content-Type`:
 
-- **Request Transforms** (refetch.ts:41-47): Mutate `RequestConfig` object. Common use: adding auth headers, logging
-- **Response Transforms** (refetch.ts:52-58): Mutate `ApiResponse<T>` object. Common use: data transformation, error enrichment
-- Both support sync and async variants
-- Applied even on error responses to ensure consistent processing
+- 204 / 304 / `content-length: 0` → `null` immediately (no read)
+- `application/json` or `/+json` suffix (via `JSON_LIKE_RE`) → `response.json()`
+- `application/x-www-form-urlencoded` → `URLSearchParams` → `Record<string, string>`
+- `image/*`, `audio/*`, `video/*`, `application/pdf`, `application/zip`, Office docs, fonts → `response.blob()`
+- `text/*`, `application/xml`, `application/xhtml+xml` → `response.text()`
+- Fallback → `response.text()`
 
-### Monitor System
+### Interceptor System (`interceptors.ts`)
 
-Monitors observe all responses (refetch.ts:63-72) without modifying them:
-- Called after all transforms complete
-- Fire-and-forget: errors caught and logged to prevent breaking request flow
-- Common uses: logging, analytics, error tracking, performance monitoring
-- Receive complete `ApiResponse<T>` including timing data
+`createInterceptorManager<T>()` uses `Map<number, InterceptorHandler<T>>` + auto-increment ID counter:
 
-### Key Design Patterns
+- `use(onFulfilled?, onRejected?) → id` — registers and returns the ejection ID
+- `eject(id)` — deletes from Map (no null-placeholder array like axios)
+- `clear()` — clears all
+- `getAll()` — returns array of handlers in insertion order
 
-1. **Closure-based state management**: Instance config and transforms stored in closures, not properties
-2. **Sequential transform execution**: Transforms execute in registration order, allowing layered modifications
-3. **Standardized response format**: All requests return `ApiResponse<T>` regardless of success/failure
-4. **Error classification**: HTTP status codes and JS errors mapped to semantic PROBLEM_CODE enum
-5. **Mutation-based transforms**: Transforms mutate config/response objects directly for performance
+Request interceptors are **reversed** before execution (LIFO). Response interceptors execute in order (FIFO). If the response interceptor chain rejects, the error is wrapped in `normalizeErrorResponse` — it never propagates as an unhandled exception.
 
-## Important Implementation Details
+### Transform Aliases (Deprecated)
 
-- **Timeout mechanism** uses AbortController (utils.ts:134-164) with 10s default
-- **Query parameters**: Arrays serialize with repeated keys; null/undefined values filtered out
-- **Body methods**: POST, PUT, PATCH have bodies; GET, HEAD, DELETE use query params only (utils.ts:272-275)
-- **Content-Type handling**: Automatic JSON stringify for objects; FormData/URLSearchParams passed through
-- **Header management**: Headers class used internally; supports record/array/Headers formats
-- **Per-request overrides**: Any config option can be overridden at request time
+`addRequestTransform` / `addResponseTransform` wrap the transform as an interceptor internally. The original function → interceptor ID mapping is stored in `requestTransformIds` / `responseTransformIds` (`Map<Function, number>`) for reference-based removal via `removeRequestTransform(fn)`. Transforms mutate the config/response then return it — backward compatible with v2 mutation-based usage.
 
-## TypeScript Usage
+### Retry Loop
 
-The library is fully typed with generics:
-
-```typescript
-interface User { id: string; name: string; }
-const response = await api.get<User>('/users/1');
-// response.data is typed as User when response.ok is true
+```
+request interceptors → once
+do {
+  if (attempt > 0) await sleep(delay); onRetry?.(attempt, lastResponse)
+  lastResponse = await executeSingleRequest(config, startTime)
+  attempt++
+} while (retryConfig && attempt < retryConfig.attempts && shouldRetry(lastResponse, retryConfig))
 ```
 
-Type guards work naturally: when `response.ok === true`, TypeScript narrows to `ApiOkResponse<T>` where `data` is guaranteed defined.
+Default non-retryable status codes: `{400, 401, 403, 404, 422}`.
+
+### Error Classification (`errors.ts`)
+
+`classifyProblem(status?, error?)` → `PROBLEM_CODE`. `buildRefetchError` returns the matching `RefetchError` variant:
+
+- `error.name === 'AbortError'` with `CancelError` cause → `{ kind: 'cancel' }`
+- `error.name === 'AbortError'` (timeout path) → `{ kind: 'timeout', duration }`
+- `error instanceof TypeError` → `{ kind: 'network' }`
+- HTTP 400–599 → `{ kind: 'http', status, statusText }`
+- Parse failure → `{ kind: 'parse', contentType, cause }`
+- Everything else → `{ kind: 'unknown', cause }`
+
+`CancelError` and `createCancelToken` live in `errors.ts`, not `interceptors.ts`.
+
+### Middleware HOFs (`middleware.ts`)
+
+Each HOF has type `(instance: RefetchInstance) => RefetchInstance`. They register interceptors and return the same instance. `pipe(value, ...fns)` reduces them left-to-right — the standard composition pattern.
+
+## Key Invariants
+
+- `utils.ts` does not exist
+- `DEFAULT_HEADERS` has **only** `Accept` — never `Content-Type`
+- `RefetchError` is defined in `types.ts`; `buildRefetchError` is in `errors.ts`
+- `stream()` returns `ApiResponse<ReadableStream<T>>` — no body parsing, no retry
+- Request interceptors run **once** before the retry loop; response interceptors run **per attempt**
+- FormData `Content-Type` must always be deleted — browser manages the boundary
+- `tsc --noEmit` must pass before any commit
