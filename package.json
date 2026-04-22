@@ -1,6 +1,6 @@
 {
   "name": "@mshindi-labs/refetch",
-  "version": "3.0.0",
+  "version": "2.0.10",
   "description": "A modern, production-grade HTTP client built on native fetch — functional TypeScript, interceptors, retry, streaming, and tree-shakeable exports",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
