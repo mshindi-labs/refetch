@@ -1,0 +1,263 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { create, PROBLEM_CODE, type RefetchInstance } from '../../src/index';
+import { asError, asOk } from '../helpers/assert';
+import { type EchoPayload, startTestServer, type TestServer } from '../helpers/server';
+
+let server: TestServer;
+let api: RefetchInstance;
+
+beforeAll(async () => {
+  server = await startTestServer();
+  api = create({ baseURL: server.baseURL });
+});
+
+afterAll(() => server.close());
+
+beforeEach(() => server.resetHits());
+
+describe('HTTP methods', () => {
+  it('GET parses JSON and exposes status, headers, duration and the raw Response', async () => {
+    const result = asOk(await api.get<{ ok: boolean }>('/json'));
+    expect(result.data).toEqual({ ok: true });
+    expect(result.status).toBe(200);
+    expect(result.problem).toBeNull();
+    expect(result.originalError).toBeNull();
+    expect(result.headers?.['content-type']).toBe('application/json');
+    expect(result.duration).toBeTypeOf('number');
+    expect(result.response).toBeInstanceOf(Response);
+  });
+
+  it('GET appends params to the query string', async () => {
+    const result = asOk(await api.get<EchoPayload>('/echo', { page: 2, tags: ['a', 'b'] }));
+    expect(result.data.url).toBe('/echo?page=2&tags=a&tags=b');
+  });
+
+  it('POST sends JSON bodies with application/json', async () => {
+    const result = asOk(await api.post<EchoPayload, { n: number }>('/echo', { n: 1 }));
+    expect(result.data.method).toBe('POST');
+    expect(result.data.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(result.data.body)).toEqual({ n: 1 });
+  });
+
+  it('PUT and PATCH behave like POST', async () => {
+    const put = asOk(await api.put<EchoPayload, { n: number }>('/echo', { n: 2 }));
+    expect(put.data.method).toBe('PUT');
+    expect(JSON.parse(put.data.body)).toEqual({ n: 2 });
+
+    const patch = asOk(await api.patch<EchoPayload, { n: number }>('/echo', { n: 3 }));
+    expect(patch.data.method).toBe('PATCH');
+    expect(JSON.parse(patch.data.body)).toEqual({ n: 3 });
+  });
+
+  it('body methods still accept params through the config', async () => {
+    const result = asOk(await api.post<EchoPayload>('/echo', { n: 1 }, { params: { q: 'x' } }));
+    expect(result.data.url).toBe('/echo?q=x');
+  });
+
+  it('DELETE sends params as query and no body', async () => {
+    const result = asOk(await api.delete<EchoPayload>('/echo', { id: 7 }));
+    expect(result.data.method).toBe('DELETE');
+    expect(result.data.url).toBe('/echo?id=7');
+    expect(result.data.body).toBe('');
+  });
+
+  it.todo('DELETE sends a body when data is provided (#27)');
+
+  it('HEAD resolves with null data', async () => {
+    const result = asOk(await api.head('/json'));
+    expect(result.data).toBeNull();
+    expect(result.status).toBe(200);
+  });
+
+  it('LINK and UNLINK use the matching verbs', async () => {
+    expect(asOk(await api.link<EchoPayload>('/echo')).data.method).toBe('LINK');
+    expect(asOk(await api.unlink<EchoPayload>('/echo')).data.method).toBe('UNLINK');
+  });
+
+  it('any() sends arbitrary verbs with bodies and headers', async () => {
+    const result = asOk(
+      await api.any<EchoPayload>({
+        method: 'PROPFIND',
+        url: '/echo',
+        data: { depth: 1 },
+        headers: { Depth: '1' },
+      }),
+    );
+    expect(result.data.method).toBe('PROPFIND');
+    expect(JSON.parse(result.data.body)).toEqual({ depth: 1 });
+    expect(result.data.headers.depth).toBe('1');
+  });
+
+  it('absolute URLs bypass baseURL', async () => {
+    const elsewhere = create({ baseURL: 'http://127.0.0.1:1' });
+    expect(asOk(await elsewhere.get(`${server.baseURL}/json`)).data).toEqual({ ok: true });
+  });
+});
+
+describe('headers and request bodies', () => {
+  it('sends Accept: application/json by default and merges instance and request headers', async () => {
+    const local = create({
+      baseURL: server.baseURL,
+      headers: { 'X-Instance': 'i', 'X-Shared': 'instance' },
+    });
+    const result = asOk(
+      await local.get<EchoPayload>('/echo', undefined, {
+        headers: { 'x-shared': 'request', 'X-Request': 'r' },
+      }),
+    );
+    expect(result.data.headers.accept).toBe('application/json');
+    expect(result.data.headers['x-instance']).toBe('i');
+    expect(result.data.headers['x-request']).toBe('r');
+    expect(result.data.headers['x-shared']).toBe('request');
+  });
+
+  it('setHeader, setHeaders and deleteHeader affect subsequent requests', async () => {
+    const local = create({ baseURL: server.baseURL });
+    local.setHeader('X-One', '1');
+    local.setHeaders({ 'X-Two': '2', 'X-Three': '3' });
+    local.deleteHeader('X-Three');
+    const { headers } = asOk(await local.get<EchoPayload>('/echo')).data;
+    expect(headers['x-one']).toBe('1');
+    expect(headers['x-two']).toBe('2');
+    expect(headers['x-three']).toBeUndefined();
+  });
+
+  it('lets the runtime set the multipart boundary for FormData', async () => {
+    const form = new FormData();
+    form.append('field', 'value');
+    const result = asOk(await api.post<EchoPayload>('/echo', form));
+    expect(result.data.headers['content-type']).toMatch(/^multipart\/form-data; boundary=/);
+    expect(result.data.body).toContain('name="field"');
+  });
+
+  it('drops an instance-level JSON Content-Type for FormData bodies', async () => {
+    const local = create({
+      baseURL: server.baseURL,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const result = asOk(await local.post<EchoPayload>('/echo', new FormData()));
+    expect(result.data.headers['content-type']).toMatch(/^multipart\/form-data/);
+  });
+
+  it('encodes URLSearchParams as form-urlencoded', async () => {
+    const result = asOk(await api.post<EchoPayload>('/echo', new URLSearchParams({ a: '1' })));
+    expect(result.data.headers['content-type']).toBe(
+      'application/x-www-form-urlencoded;charset=UTF-8',
+    );
+    expect(result.data.body).toBe('a=1');
+  });
+
+  it('labels string bodies as JSON unless Content-Type is set explicitly', async () => {
+    const asJson = asOk(await api.post<EchoPayload>('/echo', 'raw text'));
+    expect(asJson.data.headers['content-type']).toBe('application/json');
+
+    const asCsv = asOk(
+      await api.post<EchoPayload>('/echo', 'a,b', { headers: { 'Content-Type': 'text/csv' } }),
+    );
+    expect(asCsv.data.headers['content-type']).toBe('text/csv');
+    expect(asCsv.data.body).toBe('a,b');
+  });
+
+  it('uses the Blob type and octet-stream for binary bodies', async () => {
+    const blob = asOk(await api.post<EchoPayload>('/echo', new Blob(['x'], { type: 'text/csv' })));
+    expect(blob.data.headers['content-type']).toBe('text/csv');
+
+    const bytes = asOk(await api.post<EchoPayload>('/echo', new Uint8Array([104, 105])));
+    expect(bytes.data.headers['content-type']).toBe('application/octet-stream');
+    expect(bytes.data.body).toBe('hi');
+  });
+
+  // Known bug #7 — fetch requires duplex: 'half' for stream bodies.
+  it.fails('sends ReadableStream bodies (known bug #7)', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('hi'));
+        controller.close();
+      },
+    });
+    const result = asOk(await api.post<EchoPayload>('/echo', stream));
+    expect(result.data.body).toBe('hi');
+  });
+});
+
+describe('response parsing', () => {
+  it.each([
+    ['/vnd-json', { data: { id: '1' } }],
+    ['/json-charset', { charset: true }],
+    ['/form', { a: '1', b: 'two' }],
+  ])('parses %s', async (path, expected) => {
+    expect(asOk(await api.get(path)).data).toEqual(expected);
+  });
+
+  it('returns text for text/* and XML', async () => {
+    expect(asOk(await api.get('/text')).data).toBe('hello');
+    expect(asOk(await api.get('/xml')).data).toBe('<a/>');
+  });
+
+  it('returns Blobs for binary types', async () => {
+    const png = asOk(await api.get<Blob>('/png'));
+    expect(png.data).toBeInstanceOf(Blob);
+    expect(png.data.type).toBe('image/png');
+    expect(png.data.size).toBe(8);
+    expect(asOk(await api.get('/pdf')).data).toBeInstanceOf(Blob);
+  });
+
+  it('returns null for 204 and content-length: 0 responses', async () => {
+    expect(asOk(await api.get('/empty-204')).data).toBeNull();
+    expect(asOk(await api.get('/content-length-0')).data).toBeNull();
+  });
+
+  it('returns text when there is no content-type', async () => {
+    expect(asOk(await api.get('/no-content-type')).data).toBe('raw');
+  });
+
+  it('keeps JSON served as text/plain as a string (see #22 for responseType)', async () => {
+    expect(asOk(await api.get('/text-json')).data).toBe('{"a":1}');
+  });
+
+  // Known bug #5 — malformed JSON currently yields ok: true, data: null.
+  it.fails('reports malformed JSON on a 2xx as a parse error (known bug #5)', async () => {
+    const result = asError(await api.get('/bad-json'));
+    expect(result.error.kind).toBe('parse');
+  });
+});
+
+describe('error responses', () => {
+  it('classifies 4xx as CLIENT_ERROR and keeps the parsed body', async () => {
+    const result = asError(await api.get('/status/404'));
+    expect(result.problem).toBe(PROBLEM_CODE.CLIENT_ERROR);
+    expect(result.error).toEqual({ kind: 'http', status: 404, statusText: 'Not Found' });
+    expect(result.data).toEqual({ status: 404 });
+    expect(result.originalError?.message).toContain('GET');
+    expect(result.originalError?.message).toContain('404');
+  });
+
+  it('classifies 5xx as SERVER_ERROR', async () => {
+    const result = asError(await api.get('/status/503'));
+    expect(result.problem).toBe(PROBLEM_CODE.SERVER_ERROR);
+    expect(result.status).toBe(503);
+    expect(result.error.kind).toBe('http');
+  });
+
+  it('follows redirects by default', async () => {
+    expect(asOk(await api.get('/redirect')).data).toEqual({ ok: true });
+  });
+
+  // Known bug #10 — 3xx statuses fall through to kind: 'unknown'.
+  it.fails('reports a 301 under redirect: "manual" as an http error (known bug #10)', async () => {
+    const result = asError(await api.get('/redirect', undefined, { redirect: 'manual' }));
+    expect(result.status).toBe(301);
+    expect(result.error.kind).toBe('http');
+  });
+
+  it('classifies connection failures as NETWORK_ERROR', async () => {
+    const dead = create({ baseURL: 'http://127.0.0.1:1', timeout: 2000 });
+    const result = asError(await dead.get('/json'));
+    expect(result.problem).toBe(PROBLEM_CODE.NETWORK_ERROR);
+    expect(result.error.kind).toBe('network');
+    expect(result.status).toBeUndefined();
+    expect(result.originalError).toBeInstanceOf(TypeError);
+  });
+
+  it.todo('maps ECONNREFUSED to CONNECTION_ERROR (#10)');
+});

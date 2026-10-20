@@ -17,7 +17,7 @@ Thank you for your interest in contributing to `@mshindi-labs/refetch`! This doc
 
 ### Prerequisites
 
-- Node.js 18.0.0 or higher
+- Node.js 22 or higher recommended (CI covers Node 22, 24 and 26 plus Bun and Deno smoke runs)
 - npm (comes with Node.js)
 - Git
 
@@ -111,9 +111,13 @@ git checkout -b feature/your-feature   # or fix/, docs/, refactor/
    ```bash
    npx tsc --noEmit
    ```
-3. **Build** to verify the dist output:
+3. **Run the tests** (add or flip tests for the behaviour you changed):
    ```bash
-   npm run build
+   npm test
+   ```
+4. **Lint and build**:
+   ```bash
+   npm run lint && npm run build
    ```
 
 ### Keeping Your Branch Updated
@@ -150,53 +154,53 @@ git rebase upstream/main
 
 ## Testing Guidelines
 
-No automated test suite is configured yet. Until one is added:
-
-1. **Type check passes** — `npx tsc --noEmit` with zero errors
-2. **Build passes** — `npm run build` produces all 8 files (4 ESM + 4 CJS) plus type declarations
-
-### Ad-hoc Smoke Testing
-
-```typescript
-// test-local.ts (not committed)
-import { create, PROBLEM_CODE, createCancelToken } from './src/index.ts';
-import { pipe } from './src/pipe.ts';
-import { withAuth, withLogging } from './src/middleware.ts';
-
-const api = pipe(
-  create({ baseURL: 'https://jsonplaceholder.typicode.com', timeout: 5000 }),
-  withLogging(),
-);
-
-const response = await api.get('/posts/1');
-console.log(response.ok, response.data);
-```
+The suite runs on [Vitest](https://vitest.dev) directly against the TypeScript sources in `src/` — no build step needed.
 
 ```bash
-npx tsx test-local.ts
+npm test                # unit + integration + type tests, once
+npm run test:watch      # watch mode
+npm run test:coverage   # with V8 coverage; thresholds: 80 % lines/functions/statements, 75 % branches
+npm run typecheck       # tsc for src/ and for the test suite
+npm run lint            # Biome formatting + lint rules (npm run lint:fix applies them)
+npm run ci              # everything CI runs, in order
 ```
 
-### Manual Checklist
+### Layout
 
-- Basic HTTP methods: GET, POST, PUT, PATCH, DELETE, HEAD
-- Interceptor add / eject / clear
-- Retry with a mock server (3 failures then success)
-- Cancellation via `createCancelToken`
-- `stream()` on a binary or text endpoint
-- `pipe()` with `withAuth` + `withLogging`
-- FormData upload (confirm no `Content-Type` is sent)
-- TypeScript generics infer correctly: `post<User, CreateDto>`
-- Both `response.problem` and `response.error.kind` are correct on error paths
+```
+test/
+├── helpers/
+│   ├── server.ts        # real node:http server with a route for every parsing/retry/timeout path
+│   └── assert.ts        # asOk() / asError() narrowing helpers
+├── unit/                # one file per src module, pure functions only
+├── integration/         # the create() pipeline over the wire: methods, interceptors, retry, timeouts, streaming, middleware
+└── types/               # *.test-d.ts type-level tests (expectTypeOf), run by Vitest's typecheck mode
+```
 
-### Adding a Test Suite
+### Conventions
 
-We welcome contributions to add automated testing:
+- Prefer the real server helper over mocking `fetch`. Mock only at true boundaries (timers, `console`).
+- Every test asserts one behaviour and its name reads as a sentence: `it('retries 503 by default')`.
+- **Known bugs are recorded as `it.fails(...)`** with the issue number in the name, e.g. `'… (known bug #3)'`. The test asserts the *correct* behaviour, so it fails today and Vitest treats that failure as expected. When you fix the bug, flip `it.fails` to `it`; Vitest flags an expected failure that starts passing, so you cannot forget.
+- Behaviour that does not exist yet is `it.todo('… (#N)')`.
+- Type-level gaps use `// @ts-expect-error` with the issue number. Fixing the gap makes the directive unused and the type test fails until it is removed.
+- Never cast through `any` to satisfy the compiler. Cast through `unknown` only to feed deliberately invalid input to runtime validation.
 
-- Vitest is the preferred runner (ESM-native, fast)
-- Unit test each utility module (`url.ts`, `body.ts`, `response.ts`, `retry.ts`) independently
-- Integration tests for the `create()` pipeline using `vi.spyOn(globalThis, 'fetch')`
-- Include error paths: network failure, timeout, cancel, parse error
-- Test both `PROBLEM_CODE` and `RefetchError.kind` for each error scenario
+### Cross-runtime smoke
+
+`scripts/smoke.mjs` exercises the built `dist/` under Node, Bun and Deno; CI runs all three:
+
+```bash
+npm run build && node scripts/smoke.mjs
+bun scripts/smoke.mjs
+deno run --allow-net --allow-read --allow-env scripts/smoke.mjs
+```
+
+### Before a release
+
+1. `npm run ci` is green locally
+2. `npm run check:package` (arethetypeswrong + publint) reports nothing new
+3. `npm run size` is within budget (`.size-limit.json`)
 
 ## Submitting Changes
 
@@ -231,7 +235,7 @@ Closes #42
    - How you tested it
    - Any breaking changes (requires major version bump)
    - Related issue(s)
-4. Ensure `npx tsc --noEmit` and `npm run build` both pass
+4. Ensure `npm run ci` passes (lint, typecheck, build, tests with coverage, package checks, size budget, smoke)
 5. Address review feedback and iterate
 
 ## Release Process

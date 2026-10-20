@@ -1,5 +1,5 @@
-import { PROBLEM_CODE, type RefetchError } from './types';
 import { STATUS_RANGES } from './constants';
+import { PROBLEM_CODE, type RefetchError } from './types';
 
 export class CancelError extends Error {
   constructor(message?: string) {
@@ -44,33 +44,21 @@ export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
       return PROBLEM_CODE.NETWORK_ERROR;
     }
 
-    if (
-      errorMessage.includes('connection') ||
-      errorMessage.includes('refused')
-    ) {
+    if (errorMessage.includes('connection') || errorMessage.includes('refused')) {
       return PROBLEM_CODE.CONNECTION_ERROR;
     }
   }
 
   if (status !== undefined) {
-    if (
-      status >= STATUS_RANGES.CLIENT_ERROR_MIN &&
-      status <= STATUS_RANGES.CLIENT_ERROR_MAX
-    ) {
+    if (status >= STATUS_RANGES.CLIENT_ERROR_MIN && status <= STATUS_RANGES.CLIENT_ERROR_MAX) {
       return PROBLEM_CODE.CLIENT_ERROR;
     }
 
-    if (
-      status >= STATUS_RANGES.SERVER_ERROR_MIN &&
-      status <= STATUS_RANGES.SERVER_ERROR_MAX
-    ) {
+    if (status >= STATUS_RANGES.SERVER_ERROR_MIN && status <= STATUS_RANGES.SERVER_ERROR_MAX) {
       return PROBLEM_CODE.SERVER_ERROR;
     }
 
-    if (
-      status >= STATUS_RANGES.SUCCESS_MIN &&
-      status <= STATUS_RANGES.SUCCESS_MAX
-    ) {
+    if (status >= STATUS_RANGES.SUCCESS_MIN && status <= STATUS_RANGES.SUCCESS_MAX) {
       return PROBLEM_CODE.NONE;
     }
   }

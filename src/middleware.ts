@@ -6,9 +6,7 @@ type InstanceMiddleware = (instance: RefetchInstance) => RefetchInstance;
  * Injects an Authorization header before every request.
  * `getToken` is called per-request so tokens are always fresh.
  */
-export function withAuth(
-  getToken: () => string | Promise<string>,
-): InstanceMiddleware {
+export function withAuth(getToken: () => string | Promise<string>): InstanceMiddleware {
   return (instance) => {
     instance.interceptors.request.use(async (config: RequestConfig) => {
       const token = await getToken();
@@ -84,9 +82,7 @@ export function withLogging(
 
     instance.interceptors.response.use((response) => {
       if (response.ok) {
-        logger.log(
-          `[refetch] ← ${response.status} (${response.duration}ms)`,
-        );
+        logger.log(`[refetch] ← ${response.status} (${response.duration}ms)`);
       } else {
         logger.warn(
           `[refetch] ← ${response.status ?? 'ERR'} ${response.problem} (${response.duration}ms)`,

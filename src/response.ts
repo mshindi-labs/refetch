@@ -1,7 +1,7 @@
-import type { ApiResponse } from './types';
-import { headersToObject } from './headers';
-import { classifyProblem, buildRefetchError } from './errors';
 import { JSON_LIKE_RE } from './body';
+import { buildRefetchError, classifyProblem } from './errors';
+import { headersToObject } from './headers';
+import type { ApiResponse } from './types';
 
 // Matches binary MIME prefixes and known binary application subtypes
 const BINARY_PREFIX_RE = /^(image|audio|video)\//i;

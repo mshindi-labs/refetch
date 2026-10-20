@@ -204,14 +204,10 @@ export interface RefetchInstance {
   getBaseURL(): string | undefined;
 }
 
-export function isOkResponse<T>(
-  response: ApiResponse<T>,
-): response is ApiOkResponse<T> {
+export function isOkResponse<T>(response: ApiResponse<T>): response is ApiOkResponse<T> {
   return response.ok === true;
 }
 
-export function isErrorResponse<T>(
-  response: ApiResponse<T>,
-): response is ApiErrorResponse<T> {
+export function isErrorResponse<T>(response: ApiResponse<T>): response is ApiErrorResponse<T> {
   return response.ok === false;
 }
