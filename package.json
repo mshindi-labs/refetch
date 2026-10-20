@@ -120,7 +120,7 @@
     "publint": "^0.3.25",
     "size-limit": "^14.2.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }
 }
