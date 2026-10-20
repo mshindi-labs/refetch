@@ -1,5 +1,8 @@
 # @mshindi-labs/refetch
 
+[![CI](https://github.com/mshindi-labs/refetch/actions/workflows/ci.yml/badge.svg)](https://github.com/mshindi-labs/refetch/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40mshindi-labs%2Frefetch)](https://www.npmjs.com/package/@mshindi-labs/refetch)
+
 A modern, production-grade HTTP client built on native `fetch` — pure functional TypeScript, interceptors, retry, streaming, and tree-shakeable exports.
 
 ## Features

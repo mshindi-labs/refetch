@@ -2,6 +2,15 @@
 
 All notable changes to `@mshindi-labs/refetch` are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Vitest test suite: unit tests per module, integration tests against a real `node:http` server, and type-level tests. Known bugs #2–#10 are tracked as `it.fails` regression tests that flip to `it` when fixed (#15)
+- CI workflow: Biome lint, typecheck, build, tests on Node 22/24/26 (plus Windows), Bun and Deno smoke runs, arethetypeswrong + publint, size-limit budgets. Publishing now runs the full verification before `npm publish` (#16)
+
+---
+
 ## [3.0.0] — 2026-04-22
 
 Full architectural redesign. Pure functional TypeScript, 14 single-responsibility modules, zero runtime dependencies.

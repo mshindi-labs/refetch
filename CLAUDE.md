@@ -9,11 +9,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ```bash
-npm run build       # tsup — produces dist/ (ESM + CJS + .d.ts for 4 entry points)
-npx tsc --noEmit    # type check only, no output
+npm run build         # tsup — produces dist/ (ESM + CJS + .d.ts for 4 entry points)
+npm run typecheck     # tsc --noEmit for src/ and for the test suite
+npm test              # Vitest: unit + integration (real node:http server) + type tests
+npm run test:coverage # same, with V8 coverage thresholds (80 % lines)
+npm run lint          # Biome formatting + lint (npm run lint:fix applies)
+npm run check:package # arethetypeswrong + publint on the packed tarball
+npm run size          # size-limit budgets for dist/*.js
+npm run smoke         # scripts/smoke.mjs against dist/ (CI also runs it under Bun and Deno)
+npm run ci            # all of the above in CI order
 ```
 
-No test runner is configured. Use `npx tsx <file>` for ad-hoc smoke tests.
+Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidelines"). Known bugs are tracked as `it.fails('… (known bug #N)')` tests that assert the correct behaviour: flip them to `it` when fixing the bug.
 
 ## Architecture
 
@@ -140,4 +147,4 @@ Each HOF has type `(instance: RefetchInstance) => RefetchInstance`. They registe
 - `stream()` returns `ApiResponse<ReadableStream<T>>` — no body parsing, no retry
 - Request interceptors run **once** before the retry loop; response interceptors run **per attempt**
 - FormData `Content-Type` must always be deleted — browser manages the boundary
-- `tsc --noEmit` must pass before any commit
+- `npm run lint`, `npm run typecheck` and `npm test` must pass before any commit
