@@ -68,6 +68,15 @@ await api.unlink('/images/1.jpg', {}, { headers: { Link: '<...>; rel="tag"' } })
 await api.any({ method: 'PROPFIND', url: '/dav', headers: { Depth: '1' } });
 ```
 
+**Query params** accept a plain object (arrays repeat the key, `Date` values become ISO 8601 strings, `null`/`undefined` are omitted, nested objects throw a `TypeError` naming the key), a `URLSearchParams`, or `[key, value]` tuples. Pass `paramsSerializer` on the instance or the request to use another format:
+
+```typescript
+await api.get('/search', new URLSearchParams({ q: 'refetch' }));
+await api.get('/events', { since: new Date('2026-01-01'), tags: ['a', 'b'] }); // ?since=2026-01-01T00%3A00%3A00.000Z&tags=a&tags=b
+
+const api = create({ baseURL, paramsSerializer: (params) => qs.stringify(params, { arrayFormat: 'brackets' }) });
+```
+
 ## Response Format
 
 Every request returns `ApiResponse<T>` — the shape is identical whether the request succeeded or failed:
@@ -95,7 +104,7 @@ interface ApiErrorResponse<T> extends ApiResponse<T> {
 **Type guards:**
 
 ```typescript
-import { isOkResponse, isErrorResponse } from '@mshindi-labs/refetch';
+import { isOkResponse, isErrorResponse, setRequestHeader } from '@mshindi-labs/refetch';
 
 if (isOkResponse(response)) {
   response.data; // T — guaranteed present
@@ -163,16 +172,12 @@ if (!response.ok) {
 
 Return-based, ID-tracked, and removable. Request interceptors run **LIFO** (last registered, first to run); response interceptors run **FIFO**.
 
+Request interceptors always receive `config.headers` as a plain object with lower-cased keys and the instance headers already merged in (the default `Accept` is applied at send time, so it can still be overridden). Whatever shape you hold, `setRequestHeader(config, name, value)` returns a copy with the header set.
+
 ```typescript
 // Add a request interceptor
 const id = api.interceptors.request.use(
-  async (config) => ({
-    ...config,
-    headers: {
-      ...(config.headers as Record<string, string>),
-      Authorization: `Bearer ${await getToken()}`,
-    },
-  }),
+  async (config) => setRequestHeader(config, 'Authorization', `Bearer ${await getToken()}`),
   // Optional onRejected handler
   (error) => { throw error; },
 );

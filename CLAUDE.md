@@ -31,8 +31,8 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 | `types.ts` | All public types: `PROBLEM_CODE`, `RefetchError`, `RetryConfig`, `ApiResponse`, `RefetchInstance`, interceptor types, transform types |
 | `constants.ts` | `STATUS_RANGES`, `DEFAULT_TIMEOUT`, `DEFAULT_HEADERS` (Accept only — no Content-Type) |
 | `errors.ts` | `CancelError`, `TimeoutError`, `NetworkError`, `createCancelToken`, `classifyProblem`, `buildRefetchError` |
-| `url.ts` | `buildUrl`, `buildQueryString` |
-| `headers.ts` | `mergeHeaders`, `headersToObject` |
+| `url.ts` | `buildUrl` (optional `paramsSerializer`), `buildQueryString` (object / `URLSearchParams` / tuples; Dates → ISO, nested objects throw) |
+| `headers.ts` | `mergeHeaders`, `headersToObject`, `setRequestHeader` |
 | `body.ts` | `prepareRequestBody`, `shouldHaveBody`, `getBodyContentType`, `JSON_LIKE_RE` |
 | `response.ts` | `parseResponseBody`, `normalizeSuccessResponse`, `normalizeErrorResponse` |
 | `fetch.ts` | `resolveTimeout`, `createAttemptSignal` (caller signal + extra signals + timeout via `AbortSignal.any`, listener fallback), `fetchWithTimeout` |
@@ -58,12 +58,12 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 
 1. HTTP method called (e.g., `api.get(url, params, config)`)
 2. Config merged: `{ ...state.config, ...requestConfig, url, method }`
-3. `shouldHaveBody` → assign `config.data` (body methods) or `config.params` (GET/HEAD/DELETE)
+3. `shouldHaveBody` → assign `config.data` (body methods) or `config.params` (GET/HEAD/DELETE); `config.headers` is normalised to a lower-cased plain object with the instance headers merged in
 4. **Request interceptors applied (LIFO)** — return-based, run **once before any retry**; a throwing interceptor yields an error response (`UNKNOWN_ERROR` / `kind: 'unknown'`) instead of a rejection
 5. `normalizeRetryConfig` determines retry settings
 6. **Retry loop** (`do/while`):
    - `prepareRequestBody(config.data)` → `BodyInit | undefined`
-   - `mergeHeaders(DEFAULT_HEADERS, instance, request)` → then `getBodyContentType` sets `Content-Type`
+   - `mergeHeaders(DEFAULT_HEADERS, config.headers)` (instance headers were merged before the interceptors) → then `getBodyContentType` sets `Content-Type`
    - FormData: `headers.delete('Content-Type')` — browser manages multipart boundary
    - `ReadableStream` body: `duplex: 'half'` is added unless `config.duplex` is set; such requests are never retried (one-shot body)
    - `buildUrl(baseURL, url, params)`
@@ -152,5 +152,7 @@ Each HOF has type `(instance: RefetchInstance) => RefetchInstance`. They registe
 - Cancelled requests, `totalTimeout` expiries, parse failures (by default) and `ReadableStream`-bodied requests are never retried; `timeout: 0` / `false` disables the per-attempt timeout
 - `request()` and `stream()` never reject because of an interceptor: interceptor errors become error responses that still reach response interceptors and monitors
 - `src/retry.ts` has no runtime imports (keeps the `/retry` sub-path tiny)
+- Request interceptors always receive `config.headers` as a lower-cased plain object; middleware must merge with `mergeHeaders`/`setRequestHeader`, never spread `HeadersInit`
+- `buildQueryString` never emits `[object Object]`: nested objects throw, Dates serialise as ISO 8601
 - FormData `Content-Type` must always be deleted — browser manages the boundary
 - `npm run lint`, `npm run typecheck` and `npm test` must pass before any commit
