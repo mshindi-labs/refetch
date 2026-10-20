@@ -32,6 +32,7 @@ Once the trusted publisher is configured on npmjs.com:
    ```
 
 The GitHub Action will automatically:
+- Run the full verification (lint, typecheck, build, tests with coverage, package checks, size budget, smoke)
 - Build your package
 - Publish to npm using OIDC authentication (no tokens needed!)
 - Generate provenance attestations automatically
@@ -49,8 +50,8 @@ This ensures only trusted publishing can publish your package.
 ## Workflow Details
 
 - **Trigger**: Automatically runs when you push a tag starting with `v` (e.g., `v1.0.2`)
-- **Node Version**: 20
-- **npm Version**: Latest (11.5.1+ required for trusted publishing)
+- **Node Version**: 24 (ships npm 11, which satisfies the 11.5.1+ trusted-publishing requirement)
+- **Verification**: the `verify` job must pass before `publish` runs; the same checks run on every pull request via `ci.yml`
 - **Authentication**: OIDC (no tokens stored in GitHub)
 - **Provenance**: Automatically generated for transparency
 
@@ -67,6 +68,7 @@ This ensures only trusted publishing can publish your package.
 - **"Unable to authenticate"**: Verify the workflow filename in npmjs.com settings matches exactly
 - **Workflow doesn't trigger**: Ensure you're pushing tags (not just commits)
 - **Build fails**: Check that all dependencies are correctly specified in `package.json`
+- **Verify job fails**: run `npm run ci` locally; the tag is not published until every check is green
 
 ## Resources
 

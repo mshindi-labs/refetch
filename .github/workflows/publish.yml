@@ -6,33 +6,47 @@ on:
       - 'v*'
 
 permissions:
-  id-token: write  # Required for OIDC trusted publishing
   contents: read
 
 jobs:
-  publish:
+  verify:
+    name: Verify before publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:coverage
+      - run: npm run check:package
+      - run: npm run size
+      - run: node scripts/smoke.mjs
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Required for OIDC trusted publishing and provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
 
-      # Ensure npm 11.5.1 or later is installed for trusted publishing
-      - name: Update npm
-        run: npm install -g npm@latest
+      # Trusted publishing needs npm 11.5.1 or later; Node 24 ships npm 11.
+      - name: Show npm version
+        run: npm --version
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build package
-        run: npm run build
-
-      # Note: Skipping tests as they're not yet configured
-      # - name: Run tests
-      #   run: npm test
+      - run: npm ci
+      - run: npm run build
 
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --provenance --access public
