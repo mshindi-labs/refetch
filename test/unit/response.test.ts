@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ParseError } from '../../src/errors';
 import {
   normalizeErrorResponse,
   normalizeSuccessResponse,
@@ -77,9 +78,14 @@ describe('parseResponseBody', () => {
     expect(await parseResponseBody(new Response(new Blob([])))).toBeNull();
   });
 
-  // Known bug #5 — parse failures are swallowed as null today.
-  it.fails('rejects with a parse error for malformed JSON (known bug #5)', async () => {
-    await expect(parseResponseBody(typed('{not json', 'application/json'))).rejects.toThrow();
+  it('rejects with a ParseError carrying the content type and raw body for malformed JSON', async () => {
+    const error = await parseResponseBody(typed('{not json', 'application/json')).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ contentType: 'application/json', raw: '{not json' });
+    expect((error as ParseError).cause).toBeInstanceOf(SyntaxError);
   });
 });
 

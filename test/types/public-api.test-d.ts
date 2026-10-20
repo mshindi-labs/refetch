@@ -76,6 +76,7 @@ describe('public API types', () => {
     expectTypeOf<RefetchConfig['timeout']>().toEqualTypeOf<number | false | undefined>();
     expectTypeOf<RequestConfig['totalTimeout']>().toEqualTypeOf<number | false | undefined>();
     expectTypeOf<RefetchConfig['totalTimeout']>().toEqualTypeOf<number | false | undefined>();
+    expectTypeOf<RequestConfig['duplex']>().toEqualTypeOf<'half' | undefined>();
   });
 
   it('exposes RefetchError as a discriminated union on kind', () => {

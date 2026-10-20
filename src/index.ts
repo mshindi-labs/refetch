@@ -6,6 +6,7 @@ export {
   classifyProblem,
   createCancelToken,
   NetworkError,
+  ParseError,
   TimeoutError,
 } from './errors';
 export { fetchWithTimeout } from './fetch';

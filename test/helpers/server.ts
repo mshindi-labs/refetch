@@ -108,6 +108,13 @@ export async function startTestServer(): Promise<TestServer> {
         return res.end();
       case '/bad-json':
         return raw(res, 200, 'application/json', '{not json');
+      case '/bad-json-500':
+        return raw(res, 500, 'application/json', '{not json');
+      case '/drop-body':
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.write('{"partial":');
+        res.socket?.destroy();
+        return;
       case '/echo': {
         const payload: EchoPayload = {
           method: req.method ?? '',

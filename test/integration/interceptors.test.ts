@@ -80,15 +80,41 @@ describe('request interceptors', () => {
     expect(asOk(await local.get<EchoPayload>('/echo')).data.headers['x-tag']).toBeUndefined();
   });
 
-  // Known bug #6 — the rejection escapes to the caller today.
-  it.fails('turn a throwing request interceptor into an error response (known bug #6)', async () => {
+  it('turn a throwing request interceptor into an error response', async () => {
     const local = create({ baseURL: server.baseURL });
     local.interceptors.request.use(() => {
       throw new Error('boom');
     });
-    const result = await local.get('/json');
-    expect(result.ok).toBe(false);
+    const result = asError(await local.get('/json'));
+    expect(result.problem).toBe(PROBLEM_CODE.UNKNOWN_ERROR);
+    expect(result.error.kind).toBe('unknown');
     expect(result.originalError?.message).toBe('boom');
+    expect(server.hits('/json')).toBe(0);
+  });
+
+  it('turn a rejecting async request interceptor into an error response and notify monitors', async () => {
+    const local = create({ baseURL: server.baseURL });
+    const monitor = vi.fn();
+    local.addMonitor(monitor);
+    local.interceptors.request.use(async () => {
+      throw new Error('token fetch failed');
+    });
+    const result = asError(await local.get('/json'));
+    expect(result.originalError?.message).toBe('token fetch failed');
+    expect(result.error.kind).toBe('unknown');
+    expect(result.duration).toBeTypeOf('number');
+    expect(monitor).toHaveBeenCalledOnce();
+    expect(server.hits('/json')).toBe(0);
+  });
+
+  it('apply the same contract to stream()', async () => {
+    const local = create({ baseURL: server.baseURL });
+    local.interceptors.request.use(() => {
+      throw new Error('nope');
+    });
+    const result = asError(await local.stream('/stream'));
+    expect(result.originalError?.message).toBe('nope');
+    expect(server.hits('/stream')).toBe(0);
   });
 });
 

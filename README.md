@@ -120,9 +120,12 @@ switch (response.problem) {
   case PROBLEM_CODE.NETWORK_ERROR:
   case PROBLEM_CODE.CONNECTION_ERROR:
   case PROBLEM_CODE.CANCEL_ERROR:
+  case PROBLEM_CODE.PARSE_ERROR:     // 2xx whose body could not be decoded
   case PROBLEM_CODE.UNKNOWN_ERROR:
 }
 ```
+
+**Parse failures.** A 2xx whose body cannot be decoded as its declared media type (for example malformed JSON) is an error response: `problem: PARSE_ERROR`, `error.kind === 'parse'`, a `ParseError` cause, `response.data` holding the raw text, and `status`/`headers`/`response` intact. A malformed *error* body never masks the HTTP failure: it stays `kind: 'http'` with the raw text as `data`. Parse failures are not retried by default.
 
 **Typed causes.** For transport-level failures `originalError` (and `error.cause`) is one of the exported classes: `TimeoutError` (with `timeout` and `scope: 'request' | 'total'`), `CancelError`, or `NetworkError` (wraps the `TypeError` thrown by `fetch`, still an `instanceof TypeError`, with `code` such as `ECONNREFUSED` when the platform provides one, which maps to `CONNECTION_ERROR`). Any non-2xx status, including 3xx under `redirect: 'manual'`, is reported as `kind: 'http'` with its status.
 
@@ -146,6 +149,7 @@ if (!response.ok) {
       console.error('Network failure:', response.error.cause);
       break;
     case 'parse':
+      // response.data holds the raw body text, response.status/headers are still set
       console.error('Parse error for', response.error.contentType, response.error.cause);
       break;
     case 'unknown':
@@ -186,6 +190,8 @@ api.interceptors.response.use(
 api.interceptors.request.clear();
 api.interceptors.response.clear();
 ```
+
+Interceptors never throw to the caller. If a request interceptor throws or rejects (a failing token fetch in `withAuth`, say), the request is not sent and the call resolves with an error response (`problem: UNKNOWN_ERROR`, `error.kind === 'unknown'`, `originalError` set) that still passes through the response interceptors and monitors. The same holds for `stream()`.
 
 ## Retry
 
@@ -323,9 +329,11 @@ All native `fetch` body types are passed through without transformation. `Conten
 | `URLSearchParams` | `application/x-www-form-urlencoded;charset=UTF-8` |
 | `Blob` | Blob's own `.type`, or `application/octet-stream` |
 | `ArrayBuffer` / `ArrayBufferView` | `application/octet-stream` |
-| `ReadableStream` | `application/octet-stream` |
+| `ReadableStream` | `application/octet-stream`, sent with `duplex: 'half'` (override via `config.duplex`) |
 
 If you explicitly set `Content-Type` in your request headers, it takes precedence (except FormData, where it is always removed to preserve the browser-managed boundary).
+
+**Streaming request bodies** are one-shot: the stream is consumed by the first attempt, so such requests are never retried. In browsers they need HTTP/2 or HTTP/3 over HTTPS and are not supported by Safari; Node, Bun and Deno support them over HTTP/1.1 too.
 
 **Form-encoded body:**
 

@@ -5,6 +5,7 @@ import {
   classifyProblem,
   createCancelToken,
   NetworkError,
+  ParseError,
   TimeoutError,
 } from '../../src/errors';
 import { PROBLEM_CODE } from '../../src/types';
@@ -35,6 +36,17 @@ describe('TimeoutError and NetworkError', () => {
     expect(error.message).toBe('fetch failed');
     expect(error.cause).toBe(cause);
     expect(error.code).toBe('ECONNREFUSED');
+  });
+
+  it('ParseError carries the content type, the raw body and the cause', () => {
+    const cause = new SyntaxError('Unexpected token');
+    const error = new ParseError('application/json', cause, '{bad');
+    expect(error.name).toBe('ParseError');
+    expect(error.contentType).toBe('application/json');
+    expect(error.raw).toBe('{bad');
+    expect(error.cause).toBe(cause);
+    expect(error.message).toContain('application/json');
+    expect(new ParseError(null, 'oops').contentType).toBeNull();
   });
 
   it('NetworkError tolerates causes without a code or that are not Errors', () => {
@@ -127,6 +139,18 @@ describe('classifyProblem', () => {
       undefined,
       PROBLEM_CODE.CONNECTION_ERROR,
     ],
+    [
+      'a ParseError',
+      new ParseError('application/json', new SyntaxError('bad'), '{'),
+      undefined,
+      PROBLEM_CODE.PARSE_ERROR,
+    ],
+    [
+      'a ParseError even with a 2xx status',
+      new ParseError('text/plain', new Error('bad')),
+      200,
+      PROBLEM_CODE.PARSE_ERROR,
+    ],
     ['nothing at all', undefined, undefined, PROBLEM_CODE.UNKNOWN_ERROR],
   ])('classifies %s', (_label, error, status, expected) => {
     expect(classifyProblem(status, error)).toBe(expected);
@@ -197,6 +221,15 @@ describe('buildRefetchError', () => {
       kind: 'http',
       status: 0,
       statusText: '',
+    });
+  });
+
+  it('builds parse errors from ParseError instances using their own content type', () => {
+    const error = new ParseError('application/vnd.api+json', new SyntaxError('bad'), '{');
+    expect(buildRefetchError(error, 200, 3)).toEqual({
+      kind: 'parse',
+      contentType: 'application/vnd.api+json',
+      cause: error,
     });
   });
 

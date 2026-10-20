@@ -57,6 +57,23 @@ export class NetworkError extends TypeError {
   }
 }
 
+/**
+ * Thrown by `parseResponseBody` when a body cannot be decoded as its declared media type.
+ * `raw` holds the body text when it could be read, so callers can still inspect it.
+ */
+export class ParseError extends Error {
+  readonly contentType: string | null;
+  readonly raw: string | undefined;
+
+  constructor(contentType: string | null, cause: unknown, raw?: string) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`Failed to parse ${contentType ?? 'untyped'} response body: ${reason}`, { cause });
+    this.name = 'ParseError';
+    this.contentType = contentType;
+    this.raw = raw;
+  }
+}
+
 const CONNECTION_CODES = new Set([
   'ECONNREFUSED',
   'ECONNRESET',
@@ -97,6 +114,7 @@ export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
     // Our TimeoutError, AbortSignal.timeout()'s DOMException, undici's HeadersTimeoutError…
     if (name.endsWith('TimeoutError')) return PROBLEM_CODE.TIMEOUT_ERROR;
     if (name === 'CancelError') return PROBLEM_CODE.CANCEL_ERROR;
+    if (name === 'ParseError') return PROBLEM_CODE.PARSE_ERROR;
     if (name === 'AbortError' || message.includes('aborted')) {
       return message.includes('timeout') ? PROBLEM_CODE.TIMEOUT_ERROR : PROBLEM_CODE.CANCEL_ERROR;
     }
@@ -153,6 +171,13 @@ export function buildRefetchError(
     case PROBLEM_CODE.NETWORK_ERROR:
     case PROBLEM_CODE.CONNECTION_ERROR:
       return { kind: 'network', cause: error as TypeError };
+
+    case PROBLEM_CODE.PARSE_ERROR:
+      return {
+        kind: 'parse',
+        contentType: error instanceof ParseError ? error.contentType : (contentType ?? null),
+        cause: error,
+      };
 
     case PROBLEM_CODE.CLIENT_ERROR:
     case PROBLEM_CODE.SERVER_ERROR:
