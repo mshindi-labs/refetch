@@ -22,8 +22,11 @@ import type {
   RefetchConfig,
   RefetchInstance,
   RequestConfig,
+  RequestInterceptorResult,
   RequestTransform,
+  ResolvedRequest,
   ResponseTransform,
+  ShortCircuit,
 } from './types';
 import { buildUrl } from './url';
 
@@ -38,6 +41,7 @@ const REFETCH_KEYS = [
   'totalTimeout',
   'baseURL',
   'retry',
+  'context',
   'signal',
   'headers',
 ] as const;
@@ -46,6 +50,51 @@ function toRequestInit(config: RequestConfig): RequestInit {
   const init: Record<string, unknown> = { ...config };
   for (const key of REFETCH_KEYS) delete init[key];
   return init as RequestInit;
+}
+
+function isShortCircuit(value: unknown): value is ShortCircuit {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'response' in value &&
+    typeof (value as { response?: unknown }).response === 'object'
+  );
+}
+
+/** Header names whose values never appear in `response.request.headers`. */
+const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'x-auth-token',
+]);
+
+function redactHeaders(headers: Headers): Record<string, string> {
+  const snapshot = headersToObject(headers);
+  for (const name of Object.keys(snapshot)) {
+    if (SENSITIVE_HEADERS.has(name)) snapshot[name] = '[redacted]';
+  }
+  return snapshot;
+}
+
+function describeRequest(
+  config: RequestConfig,
+  attempt: number,
+  url?: string,
+  headers?: Headers,
+): ResolvedRequest {
+  return {
+    url: url ?? config.url ?? '',
+    method: (config.method ?? 'GET').toUpperCase(),
+    // Snapshot for logging and correlation: credentials are redacted; the replayable
+    // config keeps the real values.
+    headers: redactHeaders(headers ?? mergeHeaders(config.headers)),
+    body: config.data,
+    config,
+    attempt,
+  };
 }
 
 function isStream(value: unknown): value is ReadableStream {
@@ -103,7 +152,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
   const state = {
     config: normalizedConfig,
     monitors: [] as Monitor[],
-    requestInterceptors: createInterceptorManager<RequestConfig>(),
+    requestInterceptors: createInterceptorManager<RequestConfig, RequestInterceptorResult>(),
     responseInterceptors: createInterceptorManager<ApiResponse<unknown>>(),
   };
 
@@ -113,14 +162,38 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
 
   // ─── Interceptor pipeline ───────────────────────────────────────────────
 
-  async function applyRequestInterceptors(config: RequestConfig): Promise<RequestConfig> {
+  /**
+   * Runs request interceptors LIFO with axios semantics (a handler's onRejected sees the
+   * previous handler's failure). A handler returning `{ response }` ends the chain early.
+   */
+  async function applyRequestInterceptors(
+    config: RequestConfig,
+  ): Promise<RequestInterceptorResult> {
     const handlers = [...state.requestInterceptors.getAll()].reverse(); // LIFO
-    if (handlers.length === 0) return config;
-    let chain = Promise.resolve(config);
+    let value: RequestInterceptorResult = config;
+    let failure: { error: unknown } | undefined;
     for (const handler of handlers) {
-      chain = chain.then(handler.onFulfilled, handler.onRejected);
+      if (failure) {
+        if (!handler.onRejected) continue;
+        try {
+          value = await handler.onRejected(failure.error);
+          failure = undefined;
+        } catch (error) {
+          failure = { error };
+          continue;
+        }
+      } else if (handler.onFulfilled) {
+        try {
+          value = await handler.onFulfilled(value as RequestConfig);
+        } catch (error) {
+          failure = { error };
+          continue;
+        }
+      }
+      if (isShortCircuit(value)) return value;
     }
-    return chain;
+    if (failure) throw failure.error;
+    return value;
   }
 
   async function applyResponseInterceptors<T>(response: ApiResponse<T>): Promise<ApiResponse<T>> {
@@ -160,7 +233,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     config: RequestConfig,
     startTime: number,
     parentSignal: AbortSignal | undefined,
+    attemptNumber: number,
   ): Promise<ApiResponse<T>> {
+    let resolved = describeRequest(config, attemptNumber);
     const attempt: AttemptSignal = createAttemptSignal({
       signal: parentSignal,
       timeout: resolveTimeout(config.timeout, state.config.timeout),
@@ -186,6 +261,8 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       } else if (bodyContentType !== undefined && !headers.has('Content-Type')) {
         headers.set('Content-Type', bodyContentType);
       }
+
+      resolved = describeRequest(config, attemptNumber, fullUrl, headers);
 
       let response: Response;
       try {
@@ -218,6 +295,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
           } else {
             const failure = normalizeErrorResponse<T>(error, response, duration);
             failure.data = error.raw as T;
+            failure.request = resolved;
             return await finalize(failure);
           }
         } else {
@@ -237,11 +315,14 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         apiResponse = normalizeErrorResponse<T>(error, response, duration);
         apiResponse.data = data as T;
       }
+      apiResponse.request = resolved;
       return await finalize(apiResponse);
     } catch (error) {
       const duration = Date.now() - startTime;
       const failure = resolveFailure(error, attempt.signal, transportFailed);
-      return await finalize(normalizeErrorResponse<T>(failure, undefined, duration));
+      const apiResponse = normalizeErrorResponse<T>(failure, undefined, duration);
+      apiResponse.request = resolved;
+      return await finalize(apiResponse);
     } finally {
       attempt.dispose();
     }
@@ -284,11 +365,20 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
 
     // Request interceptors run once before any retry. They never throw to the caller: a
     // failing interceptor (e.g. a token fetch) produces an error response like any other failure.
+    let intercepted: RequestInterceptorResult;
     try {
-      config = await applyRequestInterceptors(config);
+      intercepted = await applyRequestInterceptors(config);
     } catch (error) {
-      return finalize(normalizeErrorResponse<T>(toError(error), undefined, Date.now() - startTime));
+      const failure = normalizeErrorResponse<T>(toError(error), undefined, Date.now() - startTime);
+      failure.request = describeRequest(config, 0);
+      return finalize(failure);
     }
+    if (isShortCircuit(intercepted)) {
+      const shortCircuited = intercepted.response as ApiResponse<T>;
+      shortCircuited.request ??= describeRequest(config, 0);
+      return finalize(shortCircuited);
+    }
+    config = intercepted;
 
     const retryConfig = normalizeRetryConfig(config.retry ?? state.config.retry);
     const deadline = createDeadline(totalTimeout);
@@ -331,7 +421,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
             break;
           }
         }
-        lastResponse = await executeSingleRequest<T>(config, startTime, call.signal);
+        lastResponse = await executeSingleRequest<T>(config, startTime, call.signal, attempt + 1);
         attempt++;
       } while (
         retryConfig !== null &&
@@ -442,7 +532,11 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     resolveTimeout(mergedConfig.timeout, state.config.timeout);
 
     try {
-      mergedConfig = await applyRequestInterceptors(mergedConfig);
+      const intercepted = await applyRequestInterceptors(mergedConfig);
+      if (isShortCircuit(intercepted)) {
+        return intercepted.response as ApiResponse<ReadableStream<T>>;
+      }
+      mergedConfig = intercepted;
     } catch (error) {
       return normalizeErrorResponse(
         toError(error),

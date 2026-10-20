@@ -1,11 +1,11 @@
 import type { InterceptorHandler, InterceptorManager } from './types';
 
-export interface InternalInterceptorManager<T> extends InterceptorManager<T> {
-  getAll(): Array<InterceptorHandler<T>>;
+export interface InternalInterceptorManager<T, R = T> extends InterceptorManager<T, R> {
+  getAll(): Array<InterceptorHandler<T, R>>;
 }
 
-export function createInterceptorManager<T>(): InternalInterceptorManager<T> {
-  const handlers = new Map<number, InterceptorHandler<T>>();
+export function createInterceptorManager<T, R = T>(): InternalInterceptorManager<T, R> {
+  const handlers = new Map<number, InterceptorHandler<T, R>>();
   let nextId = 0;
 
   return {

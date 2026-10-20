@@ -7,6 +7,7 @@ import {
   type RequestConfig,
   type RequestTransform,
   type ResponseTransform,
+  setRequestHeader,
 } from '../../src/index';
 import { asError, asOk } from '../helpers/assert';
 import { type EchoPayload, startTestServer, type TestServer } from '../helpers/server';
@@ -68,6 +69,66 @@ describe('request interceptors', () => {
     });
     const echo = asOk(await local.get<EchoPayload>('/echo')).data;
     expect(echo.headers.authorization).toBeUndefined();
+  });
+
+  it('can short-circuit with a response, which still reaches response interceptors and monitors', async () => {
+    const local = create({ baseURL: server.baseURL });
+    const monitor = vi.fn();
+    local.addMonitor(monitor);
+    local.interceptors.response.use((response) => ({ ...response, data: { seen: response.data } }));
+    local.interceptors.request.use((config) =>
+      config.url === '/json'
+        ? {
+            response: {
+              ok: true,
+              problem: null,
+              originalError: null,
+              status: 200,
+              data: { cached: true },
+            },
+          }
+        : config,
+    );
+    const result = asOk(await local.get('/json', undefined, { retry: 3 }));
+    expect(result.data).toEqual({ seen: { cached: true } });
+    expect(result.request).toMatchObject({ method: 'GET', attempt: 0 });
+    expect(monitor).toHaveBeenCalledOnce();
+    expect(server.hits('/json')).toBe(0);
+    await local.get('/echo');
+    expect(server.hits('/echo')).toBe(1);
+  });
+
+  it('supports the 401 refresh pattern with public API only', async () => {
+    let token = 'stale';
+    const local = create({ baseURL: server.baseURL });
+    local.interceptors.request.use((config) =>
+      setRequestHeader(config, 'Authorization', `Bearer ${token}`),
+    );
+    local.interceptors.response.use(async (response) => {
+      if (
+        response.status !== 401 ||
+        !response.request ||
+        response.request.config.context?.refreshed
+      ) {
+        return response;
+      }
+      token = 'fresh';
+      return local.any({ ...response.request.config, context: { refreshed: true } });
+    });
+    const result = asOk(await local.get<{ secret: boolean }>('/needs-token'));
+    expect(result.data).toEqual({ secret: true });
+    expect(result.request?.config.context).toEqual({ refreshed: true });
+    expect(server.hits('/needs-token')).toBe(2);
+  });
+
+  it('attach a request to interceptor failures too', async () => {
+    const local = create({ baseURL: server.baseURL });
+    local.interceptors.request.use(() => {
+      throw new Error('boom');
+    });
+    const result = asError(await local.get('/json', { a: 1 }));
+    expect(result.request).toMatchObject({ method: 'GET', attempt: 0 });
+    expect(result.request?.config.params).toEqual({ a: 1 });
   });
 
   it('support async handlers', async () => {

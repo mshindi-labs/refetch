@@ -11,7 +11,9 @@ import {
   type RefetchError,
   type RefetchInstance,
   type RequestConfig,
+  type ResolvedRequest,
   type RetryConfig,
+  type ShortCircuit,
 } from '../../src/index';
 
 interface User {
@@ -96,6 +98,16 @@ describe('public API types', () => {
       ((attempt: number, response: ApiResponse<unknown>, delay: number) => void) | undefined
     >();
     expectTypeOf<RetryConfig['methods']>().toEqualTypeOf<string[] | undefined>();
+  });
+
+  it('exposes the resolved request and accepts short-circuits', () => {
+    expectTypeOf<ApiResponse<User>['request']>().toEqualTypeOf<ResolvedRequest | undefined>();
+    expectTypeOf<RequestConfig['context']>().toEqualTypeOf<Record<string, unknown> | undefined>();
+    api.interceptors.request.use(
+      (config) =>
+        ({ response: { ok: true, problem: null, originalError: null, data: 1 } }) as ShortCircuit,
+    );
+    api.interceptors.request.use((config) => config);
   });
 
   it('exposes RefetchError as a discriminated union on kind', () => {
