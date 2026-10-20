@@ -441,7 +441,7 @@ function useCreateUser() {
 | Discriminated error union | ✅ | ❌ | ❌ |
 | Built-in retry | ✅ | ❌ | ❌ |
 | Built-in streaming | ✅ | limited | ❌ |
-| Bundle size | ~12 KB ESM | ~60 KB | ~10 KB + axios |
+| Bundle size | ~4 KB gzip (11.5 KB raw ESM) | ~60 KB | ~10 KB + axios |
 | Runtime dependencies | 0 | 0 | axios |
 
 ## Migration from v2

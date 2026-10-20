@@ -9,6 +9,15 @@ All notable changes to `@mshindi-labs/refetch` are documented here.
 - Vitest test suite: unit tests per module, integration tests against a real `node:http` server, and type-level tests. Known bugs #2–#10 are tracked as `it.fails` regression tests that flip to `it` when fixed (#15)
 - CI workflow: Biome lint, typecheck, build, tests on Node 22/24/26 (plus Windows), Bun and Deno smoke runs, arethetypeswrong + publint, size-limit budgets. Publishing now runs the full verification before `npm publish` (#16)
 
+### Fixed
+
+- CommonJS consumers under `moduleResolution: node16` now resolve the `.d.cts` declarations: `exports` carries separate `types` for the `import` and `require` conditions, and `typesVersions` maps the `/retry`, `/middleware` and `/pipe` sub-paths for legacy `moduleResolution: node` consumers. `arethetypeswrong` and `publint --strict` are both clean (#14)
+
+### Changed
+
+- `sideEffects: false` so bundlers can tree-shake unused modules; `repository`, `homepage`, `bugs` and `publishConfig` (public access, provenance) added to `package.json` (#14)
+- `engines.node` raised from `>=18.0.0` to `>=20.19.0`: Node 18 reached end of life on 2025-04-30 and 20.19 is the first line with stable `require(esm)`. CI runs the test suite on Node 22, 24 and 26 and the runtime smoke script on Node 20. Node 22 becomes the minimum in v4.0.0 (#14)
+
 ---
 
 ## [3.0.0] — 2026-04-22

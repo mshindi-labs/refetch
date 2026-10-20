@@ -2,31 +2,67 @@
   "name": "@mshindi-labs/refetch",
   "version": "3.0.0",
   "description": "A modern, production-grade HTTP client built on native fetch — functional TypeScript, interceptors, retry, streaming, and tree-shakeable exports",
+  "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./retry": {
-      "types": "./dist/retry.d.ts",
-      "import": "./dist/retry.js",
-      "require": "./dist/retry.cjs"
+      "import": {
+        "types": "./dist/retry.d.ts",
+        "default": "./dist/retry.js"
+      },
+      "require": {
+        "types": "./dist/retry.d.cts",
+        "default": "./dist/retry.cjs"
+      }
     },
     "./middleware": {
-      "types": "./dist/middleware.d.ts",
-      "import": "./dist/middleware.js",
-      "require": "./dist/middleware.cjs"
+      "import": {
+        "types": "./dist/middleware.d.ts",
+        "default": "./dist/middleware.js"
+      },
+      "require": {
+        "types": "./dist/middleware.d.cts",
+        "default": "./dist/middleware.cjs"
+      }
     },
     "./pipe": {
-      "types": "./dist/pipe.d.ts",
-      "import": "./dist/pipe.js",
-      "require": "./dist/pipe.cjs"
+      "import": {
+        "types": "./dist/pipe.d.ts",
+        "default": "./dist/pipe.js"
+      },
+      "require": {
+        "types": "./dist/pipe.d.cts",
+        "default": "./dist/pipe.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "retry": [
+        "./dist/retry.d.ts"
+      ],
+      "middleware": [
+        "./dist/middleware.d.ts"
+      ],
+      "pipe": [
+        "./dist/pipe.d.ts"
+      ]
     }
   },
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
@@ -41,7 +77,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "size": "size-limit",
-    "check:package": "attw --pack . --ignore-rules false-esm no-resolution && publint",
+    "check:package": "attw --pack . && publint --strict",
     "smoke": "node scripts/smoke.mjs",
     "ci": "npm run lint && npm run typecheck && npm run build && npm run test:coverage && npm run check:package && npm run size && npm run smoke",
     "prepublishOnly": "npm run build"
@@ -62,12 +98,19 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mshindi-labs/refetch"
+    "url": "git+https://github.com/mshindi-labs/refetch.git"
+  },
+  "homepage": "https://github.com/mshindi-labs/refetch#readme",
+  "bugs": {
+    "url": "https://github.com/mshindi-labs/refetch/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.19.0"
   },
-  "type": "module",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.5.15",
