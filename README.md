@@ -124,6 +124,8 @@ switch (response.problem) {
 }
 ```
 
+**Typed causes.** For transport-level failures `originalError` (and `error.cause`) is one of the exported classes: `TimeoutError` (with `timeout` and `scope: 'request' | 'total'`), `CancelError`, or `NetworkError` (wraps the `TypeError` thrown by `fetch`, still an `instanceof TypeError`, with `code` such as `ECONNREFUSED` when the platform provides one, which maps to `CONNECTION_ERROR`). Any non-2xx status, including 3xx under `redirect: 'manual'`, is reported as `kind: 'http'` with its status.
+
 ### RefetchError discriminated union
 
 Use `response.error` when you need typed access to error-specific fields:
@@ -205,6 +207,30 @@ const response = await api.get('/data', undefined, {
 **Default condition:** retry on any non-ok response except status codes 400, 401, 403, 404, 422.
 
 Request interceptors run **once** before the retry loop. Response interceptors run **per attempt**.
+
+Cancelled requests and `totalTimeout` expiries are never retried, whatever `condition` returns, and a cancel during the back-off delay returns immediately with `kind: 'cancel'`.
+
+## Timeouts
+
+```typescript
+const api = create({ baseURL: 'https://api.example.com', timeout: 10_000 });
+
+// Per-attempt timeout: covers the wait for headers *and* reading the body
+await api.get('/report', undefined, { timeout: 30_000 });
+
+// 0 or false disables the per-attempt timeout for this request
+await api.get('/export', undefined, { timeout: false });
+
+// totalTimeout caps the whole call: every attempt, every retry back-off
+await api.get('/flaky', undefined, { retry: 5, totalTimeout: 15_000 });
+```
+
+| Option | Default | Covers |
+|---|---|---|
+| `timeout` | 10 000 ms | one attempt: headers and body (`stream()`: headers only) |
+| `totalTimeout` | disabled | the whole call including retries and back-off delays |
+
+Both produce `problem: TIMEOUT_ERROR`, `error.kind === 'timeout'` and a `TimeoutError` whose `scope` tells them apart. Invalid values (negative, `NaN`, above 2³¹ − 1) reject with a `TypeError` / `RangeError` before any request is made. Signals are combined with `AbortSignal.any` where available (Node ≥ 20.3, browsers since early 2024) and with listeners elsewhere.
 
 ## Cancellation
 
