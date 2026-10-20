@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/mshindi-labs/refetch/actions/workflows/ci.yml/badge.svg)](https://github.com/mshindi-labs/refetch/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40mshindi-labs%2Frefetch)](https://www.npmjs.com/package/@mshindi-labs/refetch)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mshindi-labs/refetch/badge)](https://scorecard.dev/viewer/?uri=github.com/mshindi-labs/refetch)
 
 A modern, production-grade HTTP client built on native `fetch` — pure functional TypeScript, interceptors, retry, streaming, and tree-shakeable exports.
 
@@ -516,6 +517,10 @@ const r = await api.get('/data', undefined, { retry: 3 });
 ```
 
 **Content-Type is no longer in default headers.** It is now set automatically based on body type. Remove manual `Content-Type: application/json` from your instance headers — it will be set correctly for each body type automatically.
+
+## Security
+
+Report vulnerabilities privately through **Security → Report a vulnerability** on GitHub; see [SECURITY.md](SECURITY.md) for scope and response times. Releases are published only from CI through npm trusted publishing with provenance, and third-party actions are pinned to commit SHAs. Verify an installed version with `npm audit signatures`.
 
 ## License
 

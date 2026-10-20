@@ -26,7 +26,8 @@ Thank you for your interest in contributing to `@mshindi-labs/refetch`! This doc
 - Check the [Issues](../../issues) page for open issues
 - `good first issue` — good entry points for new contributors
 - `help wanted` — items we especially want help with
-- Open an issue before working on a significant feature or breaking change
+- Open an issue before working on a significant feature or breaking change; the issue forms ask for the context reviewers need
+- Security problems go through [SECURITY.md](SECURITY.md), never a public issue
 
 ## Development Setup
 

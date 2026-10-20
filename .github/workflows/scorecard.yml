@@ -1,0 +1,28 @@
+name: OpenSSF Scorecard
+
+# Weekly supply-chain posture check; results feed the badge at
+# https://scorecard.dev/viewer/?uri=github.com/mshindi-labs/refetch
+on:
+  schedule:
+    - cron: '30 2 * * 1'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # needed to publish results to the Scorecard API
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
