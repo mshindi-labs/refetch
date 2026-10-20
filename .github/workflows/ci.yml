@@ -56,17 +56,27 @@ jobs:
           retention-days: 14
 
   smoke:
+    # Node 20 is the minimum supported runtime (engines) but Vitest 5 needs Node 22+,
+    # so the built package is exercised there through the smoke script instead.
     name: Smoke (${{ matrix.runtime }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        runtime: [node, bun, deno]
+        include:
+          - runtime: node 20
+            node: 20
+          - runtime: node 24
+            node: 24
+          - runtime: bun
+            node: 24
+          - runtime: deno
+            node: 24
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -79,7 +89,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Smoke (node)
-        if: matrix.runtime == 'node'
+        if: startsWith(matrix.runtime, 'node')
         run: node scripts/smoke.mjs
       - name: Smoke (bun)
         if: matrix.runtime == 'bun'
