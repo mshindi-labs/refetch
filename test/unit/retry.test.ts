@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CancelError } from '../../src/errors';
 import { getRetryDelay, normalizeRetryConfig, shouldRetry, sleep } from '../../src/retry';
 import { type ApiResponse, PROBLEM_CODE } from '../../src/types';
 
@@ -72,8 +73,7 @@ describe('shouldRetry', () => {
     expect(shouldRetry(succeeded, { attempts: 3, condition: () => true })).toBe(true);
   });
 
-  // Known bug #3 — cancelled requests are retried today.
-  it.fails('never retries cancelled requests (known bug #3)', () => {
+  it('never retries cancelled requests', () => {
     const cancelled: ApiResponse<unknown> & { error: unknown } = {
       ...failed(undefined),
       problem: PROBLEM_CODE.CANCEL_ERROR,
@@ -97,5 +97,28 @@ describe('sleep', () => {
     await vi.advanceTimersByTimeAsync(1);
     await pending;
     expect(done).toHaveBeenCalledOnce();
+  });
+
+  it('rejects with the abort reason when the signal fires during the delay', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const assertion = expect(sleep(1000, controller.signal)).rejects.toBeInstanceOf(CancelError);
+    controller.abort(new CancelError('stop'));
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rejects immediately for an already-aborted signal', async () => {
+    const controller = new AbortController();
+    controller.abort(new CancelError('pre'));
+    await expect(sleep(50, controller.signal)).rejects.toBeInstanceOf(CancelError);
+  });
+
+  it('resolves normally when the signal never fires', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const pending = sleep(10, controller.signal);
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(pending).resolves.toBeUndefined();
   });
 });

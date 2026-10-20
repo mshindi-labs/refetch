@@ -88,8 +88,7 @@ describe('retry', () => {
 
   it.todo('does not retry non-idempotent POST requests by default (#11 Phase B, v4.0.0)');
 
-  // Known bug #3 — a cancelled attempt is retried, and the retries reach the server.
-  it.fails('does not retry a cancelled request (known bug #3)', async () => {
+  it('does not retry a cancelled request', async () => {
     const { token, cancel } = createCancelToken();
     const pending = api.get('/flaky?key=cancelled&fails=10', undefined, {
       signal: token,

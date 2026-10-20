@@ -41,6 +41,21 @@ function raw(
 }
 
 /**
+ * Returns a loopback URL whose port was just released, so connecting to it is refused
+ * (ECONNREFUSED). Low ports such as 1 are on the Fetch spec's blocked-port list and fail
+ * with "bad port" before any connection attempt, so they cannot be used for this.
+ */
+export async function closedBaseURL(): Promise<string> {
+  const probe = createServer();
+  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+  const { port } = probe.address() as AddressInfo;
+  await new Promise<void>((resolve, reject) =>
+    probe.close((err) => (err ? reject(err) : resolve())),
+  );
+  return `http://127.0.0.1:${port}`;
+}
+
+/**
  * Starts a real HTTP server on an ephemeral port with routes that exercise every
  * parsing, retry, timeout and cancellation path of the client.
  */

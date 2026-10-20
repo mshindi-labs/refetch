@@ -1,6 +1,13 @@
 export { prepareRequestBody, shouldHaveBody } from './body';
 export { DEFAULT_TIMEOUT, STATUS_RANGES } from './constants';
-export { buildRefetchError, CancelError, classifyProblem, createCancelToken } from './errors';
+export {
+  buildRefetchError,
+  CancelError,
+  classifyProblem,
+  createCancelToken,
+  NetworkError,
+  TimeoutError,
+} from './errors';
 export { fetchWithTimeout } from './fetch';
 export { headersToObject, mergeHeaders } from './headers';
 export {

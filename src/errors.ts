@@ -21,30 +21,96 @@ export function createCancelToken(): {
   };
 }
 
+export type TimeoutScope = 'request' | 'total';
+
+/**
+ * Abort reason used when a request exceeds `timeout` (scope `request`) or `totalTimeout`
+ * (scope `total`, which also covers retries and back-off delays).
+ */
+export class TimeoutError extends Error {
+  readonly timeout: number;
+  readonly scope: TimeoutScope;
+
+  constructor(timeout: number, scope: TimeoutScope = 'request') {
+    super(
+      scope === 'total' ? `Total timeout of ${timeout}ms exceeded` : `Timed out after ${timeout}ms`,
+    );
+    this.name = 'TimeoutError';
+    this.timeout = timeout;
+    this.scope = scope;
+  }
+}
+
+/**
+ * Wraps the `TypeError` that `fetch()` throws when the transport fails (DNS, refused
+ * connection, TLS, CORS). It extends `TypeError` so existing `instanceof` checks keep
+ * working; `code` carries the platform error code when one is available (`ECONNREFUSED`…).
+ */
+export class NetworkError extends TypeError {
+  readonly code: string | undefined;
+
+  constructor(cause: unknown) {
+    const original = cause instanceof Error ? cause : new Error(String(cause));
+    super(original.message, { cause: original });
+    this.name = 'NetworkError';
+    this.code = findErrorCode(original);
+  }
+}
+
+const CONNECTION_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EPIPE',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+// Chrome "Failed to fetch", Firefox "NetworkError when attempting to fetch resource.",
+// Safari "Load failed", Node/undici "fetch failed".
+const NETWORK_MESSAGE_RE = /fetch|network|load failed/;
+
+/** Walks `error.cause` chains (undici nests the socket error) looking for a string `code`. */
+function findErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current !== null && typeof current === 'object'; depth++) {
+    const { code, cause } = current as { code?: unknown; cause?: unknown };
+    if (typeof code === 'string') return code;
+    current = cause;
+  }
+  return undefined;
+}
+
+function isSuccessStatus(status: number): boolean {
+  return status >= STATUS_RANGES.SUCCESS_MIN && status <= STATUS_RANGES.SUCCESS_MAX;
+}
+
 export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
   if (error) {
-    const errorName = error.name;
-    const errorMessage = error.message?.toLowerCase() || '';
+    const name = error.name;
+    const message = error.message?.toLowerCase() ?? '';
 
-    if (
-      errorName === 'AbortError' ||
-      errorName === 'CancelError' ||
-      errorMessage.includes('aborted')
-    ) {
-      if (errorMessage.includes('timeout')) {
-        return PROBLEM_CODE.TIMEOUT_ERROR;
-      }
-      return PROBLEM_CODE.CANCEL_ERROR;
+    // Our TimeoutError, AbortSignal.timeout()'s DOMException, undici's HeadersTimeoutError…
+    if (name.endsWith('TimeoutError')) return PROBLEM_CODE.TIMEOUT_ERROR;
+    if (name === 'CancelError') return PROBLEM_CODE.CANCEL_ERROR;
+    if (name === 'AbortError' || message.includes('aborted')) {
+      return message.includes('timeout') ? PROBLEM_CODE.TIMEOUT_ERROR : PROBLEM_CODE.CANCEL_ERROR;
     }
 
-    if (
-      errorName === 'TypeError' &&
-      (errorMessage.includes('fetch') || errorMessage.includes('network'))
-    ) {
-      return PROBLEM_CODE.NETWORK_ERROR;
+    if (name === 'NetworkError' || (name === 'TypeError' && NETWORK_MESSAGE_RE.test(message))) {
+      const code = error instanceof NetworkError ? error.code : findErrorCode(error);
+      return code !== undefined && CONNECTION_CODES.has(code)
+        ? PROBLEM_CODE.CONNECTION_ERROR
+        : PROBLEM_CODE.NETWORK_ERROR;
     }
 
-    if (errorMessage.includes('connection') || errorMessage.includes('refused')) {
+    // Fallbacks for foreign errors that only describe themselves in their message.
+    if (message.includes('timeout')) return PROBLEM_CODE.TIMEOUT_ERROR;
+    if (message.includes('connection') || message.includes('refused')) {
       return PROBLEM_CODE.CONNECTION_ERROR;
     }
   }
@@ -53,12 +119,10 @@ export function classifyProblem(status?: number, error?: Error): PROBLEM_CODE {
     if (status >= STATUS_RANGES.CLIENT_ERROR_MIN && status <= STATUS_RANGES.CLIENT_ERROR_MAX) {
       return PROBLEM_CODE.CLIENT_ERROR;
     }
-
     if (status >= STATUS_RANGES.SERVER_ERROR_MIN && status <= STATUS_RANGES.SERVER_ERROR_MAX) {
       return PROBLEM_CODE.SERVER_ERROR;
     }
-
-    if (status >= STATUS_RANGES.SUCCESS_MIN && status <= STATUS_RANGES.SUCCESS_MAX) {
+    if (isSuccessStatus(status)) {
       return PROBLEM_CODE.NONE;
     }
   }
@@ -92,20 +156,16 @@ export function buildRefetchError(
 
     case PROBLEM_CODE.CLIENT_ERROR:
     case PROBLEM_CODE.SERVER_ERROR:
-      return {
-        kind: 'http',
-        status: status!,
-        statusText: statusText ?? '',
-      };
+      return { kind: 'http', status: status ?? 0, statusText: statusText ?? '' };
 
     default:
-      // Detect parse errors by name convention
+      // Any other non-2xx status (1xx, 3xx under redirect: 'manual', opaque 0) is still an
+      // HTTP-level failure with a status the caller can act on.
+      if (status !== undefined && !isSuccessStatus(status)) {
+        return { kind: 'http', status, statusText: statusText ?? '' };
+      }
       if (error.name === 'ParseError' || error.message.includes('parse')) {
-        return {
-          kind: 'parse',
-          contentType: contentType ?? null,
-          cause: error,
-        };
+        return { kind: 'parse', contentType: contentType ?? null, cause: error };
       }
       return { kind: 'unknown', cause: error };
   }

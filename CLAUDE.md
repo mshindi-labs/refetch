@@ -30,12 +30,12 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 |------|---------------|
 | `types.ts` | All public types: `PROBLEM_CODE`, `RefetchError`, `RetryConfig`, `ApiResponse`, `RefetchInstance`, interceptor types, transform types |
 | `constants.ts` | `STATUS_RANGES`, `DEFAULT_TIMEOUT`, `DEFAULT_HEADERS` (Accept only — no Content-Type) |
-| `errors.ts` | `CancelError`, `createCancelToken`, `classifyProblem`, `buildRefetchError` |
+| `errors.ts` | `CancelError`, `TimeoutError`, `NetworkError`, `createCancelToken`, `classifyProblem`, `buildRefetchError` |
 | `url.ts` | `buildUrl`, `buildQueryString` |
 | `headers.ts` | `mergeHeaders`, `headersToObject` |
 | `body.ts` | `prepareRequestBody`, `shouldHaveBody`, `getBodyContentType`, `JSON_LIKE_RE` |
 | `response.ts` | `parseResponseBody`, `normalizeSuccessResponse`, `normalizeErrorResponse` |
-| `fetch.ts` | `fetchWithTimeout` — AbortController + signal merging + finally cleanup |
+| `fetch.ts` | `resolveTimeout`, `createAttemptSignal` (caller signal + extra signals + timeout via `AbortSignal.any`, listener fallback), `fetchWithTimeout` |
 | `interceptors.ts` | `createInterceptorManager` — Map-based, auto-increment IDs, `getAll()` |
 | `retry.ts` | `normalizeRetryConfig`, `getRetryDelay`, `shouldRetry`, `sleep` |
 | `middleware.ts` | `withAuth`, `withTimeout`, `withHeaders`, `withBaseURL`, `withLogging` |
@@ -66,7 +66,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
    - `mergeHeaders(DEFAULT_HEADERS, instance, request)` → then `getBodyContentType` sets `Content-Type`
    - FormData: `headers.delete('Content-Type')` — browser manages multipart boundary
    - `buildUrl(baseURL, url, params)`
-   - `fetchWithTimeout` with AbortController
+   - `fetch` with the attempt signal (caller signal + `totalTimeout` deadline + per-attempt timeout); the same signal bounds the body read, so timeouts and cancels during parsing surface as such
    - `parseResponseBody` — content-type-aware (see below)
    - `normalizeSuccessResponse` or `normalizeErrorResponse` + `buildRefetchError`
    - **Response interceptors applied (FIFO)** — per attempt
@@ -114,7 +114,7 @@ Request interceptors are **reversed** before execution (LIFO). Response intercep
 ```
 request interceptors → once
 do {
-  if (attempt > 0) await sleep(delay); onRetry?.(attempt, lastResponse)
+  if (attempt > 0) await sleep(delay, callSignal); onRetry?.(attempt, lastResponse)   // abortable: cancel/total timeout ends the call
   lastResponse = await executeSingleRequest(config, startTime)
   attempt++
 } while (retryConfig && attempt < retryConfig.attempts && shouldRetry(lastResponse, retryConfig))
@@ -126,12 +126,14 @@ Default non-retryable status codes: `{400, 401, 403, 404, 422}`.
 
 `classifyProblem(status?, error?)` → `PROBLEM_CODE`. `buildRefetchError` returns the matching `RefetchError` variant:
 
-- `error.name === 'AbortError'` with `CancelError` cause → `{ kind: 'cancel' }`
-- `error.name === 'AbortError'` (timeout path) → `{ kind: 'timeout', duration }`
-- `error instanceof TypeError` → `{ kind: 'network' }`
-- HTTP 400–599 → `{ kind: 'http', status, statusText }`
-- Parse failure → `{ kind: 'parse', contentType, cause }`
+- `TimeoutError` (ours; `scope: 'request' | 'total'`), `AbortSignal.timeout()`'s DOMException, or any `*TimeoutError` name → `{ kind: 'timeout', duration }` / `TIMEOUT_ERROR`
+- `CancelError` / `AbortError` → `{ kind: 'cancel', reason }` / `CANCEL_ERROR`
+- `NetworkError` (wraps the `TypeError` thrown by `fetch()`; extends `TypeError`; `code` read from the cause chain) → `{ kind: 'network' }`; `CONNECTION_ERROR` when `code` is a connection code (`ECONNREFUSED`, `ENOTFOUND`, …), else `NETWORK_ERROR`
+- Any non-2xx status (4xx, 5xx, and 1xx/3xx/0 under `redirect: 'manual'`) → `{ kind: 'http', status, statusText }`
+- `ParseError`-named errors → `{ kind: 'parse', contentType, cause }` (see #5)
 - Everything else → `{ kind: 'unknown', cause }`
+
+Classification is by origin first (abort reason, `fetch()` throwing) and by message only as a fallback for foreign errors.
 
 `CancelError` and `createCancelToken` live in `errors.ts`, not `interceptors.ts`.
 
@@ -146,5 +148,7 @@ Each HOF has type `(instance: RefetchInstance) => RefetchInstance`. They registe
 - `RefetchError` is defined in `types.ts`; `buildRefetchError` is in `errors.ts`
 - `stream()` returns `ApiResponse<ReadableStream<T>>` — no body parsing, no retry
 - Request interceptors run **once** before the retry loop; response interceptors run **per attempt**
+- Cancelled requests and `totalTimeout` expiries are never retried; `timeout: 0` / `false` disables the per-attempt timeout
+- `src/retry.ts` has no runtime imports (keeps the `/retry` sub-path tiny)
 - FormData `Content-Type` must always be deleted — browser manages the boundary
 - `npm run lint`, `npm run typecheck` and `npm test` must pass before any commit

@@ -1,5 +1,5 @@
 [
-  { "name": "index (ESM)", "path": "dist/index.js", "limit": "5 KB", "gzip": true },
+  { "name": "index (ESM)", "path": "dist/index.js", "limit": "5.5 KB", "gzip": true },
   { "name": "middleware (ESM)", "path": "dist/middleware.js", "limit": "1 KB", "gzip": true },
   { "name": "retry (ESM)", "path": "dist/retry.js", "limit": "500 B", "gzip": true },
   { "name": "pipe (ESM)", "path": "dist/pipe.js", "limit": "300 B", "gzip": true }
