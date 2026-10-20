@@ -1,76 +1,79 @@
 # Publishing Setup Guide
 
-This repository uses **npm Trusted Publishers** with OIDC authentication for secure, token-free package publishing.
+Releases are automated. [release-please](https://github.com/googleapis/release-please) keeps a **Release PR** open on `main`; merging it tags the release, creates the GitHub release and publishes to npm through **npm Trusted Publishers** (OIDC, no tokens, provenance attached). Everything lives in `.github/workflows/publish.yml`.
 
-## Setup Steps
+## One-time setup
 
-### 1. Configure Trusted Publisher on npmjs.com
+### 1. Configure the trusted publisher on npmjs.com
 
 1. Go to [npmjs.com](https://www.npmjs.com) and log in
-2. Navigate to your package: `@mshindi-labs/refetch`
+2. Navigate to the package: `@mshindi-labs/refetch`
 3. Go to **Settings** → **Publishing Access**
-4. Click **"Add a trusted publisher"**
-5. Select **GitHub Actions** as the provider
-6. Fill in the following details:
-   - **Repository owner**: `mshindi-labs` (your GitHub username or org)
-   - **Repository name**: `refetch` (or your actual repo name)
+4. Click **"Add a trusted publisher"** and select **GitHub Actions**
+5. Fill in:
+   - **Repository owner**: `mshindi-labs`
+   - **Repository name**: `refetch`
    - **Workflow filename**: `publish.yml`
-   - **Environment name**: Leave empty (optional)
+   - **Environment name**: leave empty
 
-**Important**: The workflow filename must match exactly (case-sensitive) including the `.yml` extension.
+**Important**: the workflow filename must match exactly (case-sensitive) including the `.yml` extension. The publish job deliberately stays in `publish.yml` so this setting never changes.
 
-### 2. How to Publish
+### 2. Repository settings on GitHub
 
-Once the trusted publisher is configured on npmjs.com:
+- **Settings → Actions → General → Workflow permissions**: enable **Allow GitHub Actions to create and approve pull requests**. release-please needs it to open the Release PR.
+- Optional: add a repository secret `RELEASE_PLEASE_TOKEN` holding a fine-grained personal access token with `contents: write` and `pull-requests: write` on this repository. With it, the Release PR gets the normal CI checks. With the default `GITHUB_TOKEN`, GitHub never triggers workflows for pull requests or tags created by Actions, so the Release PR shows no checks; the publish job still runs the full `npm run ci` gate before publishing.
+- Keep tags clean: release-please looks at existing tags and releases to find the previous version. Delete tags that were never released (for example a stray `v4.0.0` created by an accidental `npm version`).
 
-1. Update the version in `package.json`
-2. Commit your changes
-3. Create and push a git tag:
-   ```bash
-   git tag v1.0.2
-   git push origin v1.0.2
-   ```
+### 3. (Recommended) Restrict token access
 
-The GitHub Action will automatically:
-- Run the full verification (lint, typecheck, build, tests with coverage, package checks, size budget, smoke)
-- Build your package
-- Publish to npm using OIDC authentication (no tokens needed!)
-- Generate provenance attestations automatically
-
-### 3. (Recommended) Restrict Token Access
-
-For maximum security, after verifying trusted publishing works:
+After verifying trusted publishing works:
 
 1. Go to package **Settings** → **Publishing access**
 2. Select **"Require two-factor authentication and disallow tokens"**
-3. Save changes
+3. Save
 
-This ensures only trusted publishing can publish your package.
+This ensures only the workflow can publish.
 
-## Workflow Details
+## How a release happens
 
-- **Trigger**: Automatically runs when you push a tag starting with `v` (e.g., `v1.0.2`)
-- **Node Version**: 24 (ships npm 11, which satisfies the 11.5.1+ trusted-publishing requirement)
-- **Verification**: the `verify` job must pass before `publish` runs; the same checks run on every pull request via `ci.yml`
-- **Authentication**: OIDC (no tokens stored in GitHub)
-- **Provenance**: Automatically generated for transparency
+1. Pull requests merge into `main` with Conventional Commit messages (`fix:`, `feat:`, `feat!:` / `BREAKING CHANGE:`).
+2. On every push to `main`, release-please creates or updates the PR titled `chore: release X.Y.Z` with the version bump in `package.json` / `package-lock.json` and the generated `CHANGELOG.md` entry.
+3. Review the notes. If they need more context, commit to the Release PR branch (the next push to `main` regenerates it, so do this right before merging) or add a follow-up docs commit after the release.
+4. Merge the Release PR. The workflow tags `vX.Y.Z`, publishes the GitHub release, checks out the tag, runs `npm ci` and `npm run ci`, then `npm publish --provenance --access public`.
+5. Confirm on [npmjs.com](https://www.npmjs.com/package/@mshindi-labs/refetch) and the GitHub Releases page.
 
-## Benefits of Trusted Publishing
+## Forcing a version
 
-✅ No long-lived tokens to manage
-✅ No risk of token leaks
-✅ Automatic provenance generation
-✅ Short-lived, scoped credentials
-✅ Cryptographic proof of package authenticity
+Add a `Release-As: X.Y.Z` footer to any commit that lands on `main`, for example an empty commit:
+
+```bash
+git commit --allow-empty -m "chore: release 3.1.0" -m "Release-As: 3.1.0"
+```
+
+The next Release PR uses that version regardless of the commit types.
+
+## Re-publishing an existing tag
+
+If publishing failed after the release was created (transient npm or runner error), re-run it from the Actions tab: **Release & Publish** → **Run workflow** → enter the tag (for example `v3.1.0`). The job re-verifies and publishes that exact tag.
+
+## Workflow details
+
+- **Triggers**: push to `main` (release-please), `workflow_dispatch` with a tag (re-publish)
+- **Node version**: 24 (ships npm 11, which satisfies the 11.5.1+ trusted-publishing requirement)
+- **Verification**: `npm run ci` (lint, typecheck, build, tests with coverage, arethetypeswrong/publint, size budget, smoke) must pass before `npm publish`
+- **Authentication**: OIDC, no tokens stored in GitHub
+- **Provenance**: generated for every publish
 
 ## Troubleshooting
 
-- **"Unable to authenticate"**: Verify the workflow filename in npmjs.com settings matches exactly
-- **Workflow doesn't trigger**: Ensure you're pushing tags (not just commits)
-- **Build fails**: Check that all dependencies are correctly specified in `package.json`
-- **Verify job fails**: run `npm run ci` locally; the tag is not published until every check is green
+- **No Release PR after merging**: check the "Allow GitHub Actions to create and approve pull requests" setting, and that the commits since the last release contain `fix`, `feat`, `perf` or `revert` types (hidden types such as `docs` or `chore` alone do not produce a release)
+- **Wrong next version**: use a `Release-As` footer; `feat` bumps minor, `fix` patch, `!` or `BREAKING CHANGE:` major
+- **"Unable to authenticate"**: the workflow filename in npmjs.com settings must be exactly `publish.yml`
+- **Publish job did not run after merging the Release PR**: open the "Release & Publish" run for the merge commit; re-run via *Run workflow* with the tag if needed
+- **Verify step fails**: run `npm run ci` locally; the tag is not published until every check is green
 
 ## Resources
 
+- [release-please](https://github.com/googleapis/release-please) and [release-please-action](https://github.com/googleapis/release-please-action)
 - [npm Trusted Publishers Documentation](https://docs.npmjs.com/trusted-publishers)
 - [GitHub Actions OIDC](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect)

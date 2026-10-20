@@ -1,52 +1,71 @@
-name: Publish Package
+name: Release & Publish
 
+# release-please keeps a Release PR open with the next version and the CHANGELOG entry,
+# both derived from Conventional Commits. Merging that PR creates the tag and the GitHub
+# release; the publish job then runs the full verification and publishes to npm through
+# OIDC trusted publishing (registered on npmjs.com for this workflow file, publish.yml).
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)publish, e.g. v3.1.0
+        required: true
+        type: string
 
 permissions:
   contents: read
 
-jobs:
-  verify:
-    name: Verify before publish
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm run test:coverage
-      - run: npm run check:package
-      - run: npm run size
-      - run: node scripts/smoke.mjs
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
 
-  publish:
-    name: Publish to npm
-    needs: verify
+jobs:
+  release-please:
+    name: Release PR / GitHub release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # Required for OIDC trusted publishing and provenance
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          # A fine-grained PAT in RELEASE_PLEASE_TOKEN lets CI run on the Release PR. With
+          # the default GITHUB_TOKEN the PR gets no checks (GitHub never triggers workflows
+          # for events created by that token); the publish job below still gates on `npm run ci`.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Verify and publish to npm
+    needs: release-please
+    if: >-
+      !cancelled() &&
+      (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC trusted publishing and provenance attestation
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
-
+          cache: npm
       # Trusted publishing needs npm 11.5.1 or later; Node 24 ships npm 11.
-      - name: Show npm version
-        run: npm --version
-
+      - run: npm --version
       - run: npm ci
-      - run: npm run build
-
-      - name: Publish to npm
+      - name: Full verification (lint, typecheck, build, tests, package checks, size, smoke)
+        run: npm run ci
+      - name: Publish with provenance
         run: npm publish --provenance --access public

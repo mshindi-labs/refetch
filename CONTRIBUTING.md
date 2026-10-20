@@ -240,20 +240,16 @@ Closes #42
 
 ## Release Process
 
-Releases follow [Semantic Versioning](https://semver.org/):
+Releases are automated with [release-please](https://github.com/googleapis/release-please) and follow [Semantic Versioning](https://semver.org/):
 
-- **MAJOR** — breaking API changes
-- **MINOR** — new backward-compatible features
-- **PATCH** — bug fixes
+- `fix:` → **patch**, `feat:` → **minor**, `feat!:` or a `BREAKING CHANGE:` footer → **major**
+- Every push to `main` creates or updates the **Release PR** (`chore: release X.Y.Z`) with the version bump in `package.json` / `package-lock.json` and the generated `CHANGELOG.md` entry
+- **Merging the Release PR** tags `vX.Y.Z`, creates the GitHub release, and the `publish` job runs `npm run ci` and publishes to npm with provenance through OIDC trusted publishing. Nothing runs locally.
+- To force a version, add a `Release-As: X.Y.Z` footer to any commit (an empty `chore: release X.Y.Z` commit works)
+- Commit subjects become changelog lines, so write them for readers: `fix(fetch): bound the body read by the timeout`. `docs`, `test`, `ci`, `build`, `chore`, `style` and `refactor` commits are hidden from the changelog
+- Re-publish an existing tag (for example after a transient npm failure) from the Actions tab: **Release & Publish** → **Run workflow** with the tag
 
-Release steps (maintainers):
-
-```bash
-npm version patch   # or minor / major — updates package.json and creates a git tag
-npm run build       # verify dist/
-npm publish --access public
-# Create a GitHub release with changelog notes
-```
+Maintainers: `.github/PUBLISHING.md` covers the one-time npm and repository settings.
 
 ## Questions?
 
