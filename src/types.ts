@@ -44,8 +44,40 @@ export interface RetryConfig {
    * never retried, and requests whose body is a one-shot ReadableStream cannot be retried.
    */
   condition?: (response: ApiResponse<unknown>) => boolean;
-  /** Called before each retry attempt. */
-  onRetry?: (attempt: number, response: ApiResponse<unknown>) => void;
+  /** Grows the base `delay` per attempt. Ignored when `delay` is a function. Default `'fixed'`. */
+  backoff?: 'fixed' | 'linear' | 'exponential';
+  /** Full jitter: each computed delay becomes a random value in [0, delay]. Default `false`. */
+  jitter?: boolean;
+  /** Upper bound in ms for computed delays. */
+  maxDelay?: number;
+  /** Honour `Retry-After` and rate-limit reset headers instead of the computed delay. Default `true`. */
+  respectRetryAfter?: boolean;
+  /** Give up instead of waiting when the server asks for more than this many ms. Default unlimited. */
+  maxRetryAfter?: number;
+  /** Only retry these HTTP methods (case-insensitive). Default: every method. */
+  methods?: string[];
+  /** Only retry these status codes; transport failures stay retryable. Default: see `condition`. */
+  statusCodes?: number[];
+  /** Called before each retry's delay with the 1-based attempt, the last response and the delay in ms. */
+  onRetry?: (attempt: number, response: ApiResponse<unknown>, delay: number) => void;
+}
+
+/** Extra facts `shouldRetry` needs beyond the response. */
+export interface RetryContext {
+  /** HTTP method of the request being retried, checked against `RetryConfig.methods`. */
+  method?: string;
+}
+
+/** Options for `exponentialBackoff()`. */
+export interface BackoffOptions {
+  /** First delay in ms. Default 300. */
+  base?: number;
+  /** Growth factor per attempt. Default 2. */
+  factor?: number;
+  /** Upper bound in ms. Default 30 000. */
+  max?: number;
+  /** Full jitter in [0, delay]. Default `false`. */
+  jitter?: boolean;
 }
 
 /**

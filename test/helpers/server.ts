@@ -142,6 +142,22 @@ export async function startTestServer(): Promise<TestServer> {
         if (attempt <= failures) return json(res, 500, { attempt, failed: true });
         return json(res, 200, { attempt, failed: false });
       }
+      case '/retry-after': {
+        const key = `ra:${url.searchParams.get('key') ?? 'default'}`;
+        const failures = Number(url.searchParams.get('fails') ?? '1');
+        const after = Number(url.searchParams.get('after') ?? '1');
+        const headerName = url.searchParams.get('header') ?? 'retry-after';
+        const attempt = (flaky.get(key) ?? 0) + 1;
+        flaky.set(key, attempt);
+        if (attempt <= failures) {
+          const value = url.searchParams.get('date')
+            ? new Date(Date.now() + after * 1000).toUTCString()
+            : String(after);
+          res.writeHead(429, { 'content-type': 'application/json', [headerName]: value });
+          return res.end(JSON.stringify({ attempt }));
+        }
+        return json(res, 200, { attempt });
+      }
       case '/redirect':
         res.writeHead(301, { location: '/json' });
         return res.end();

@@ -26,8 +26,10 @@ export {
   parseResponseBody,
 } from './response';
 export {
+  exponentialBackoff,
   getRetryDelay,
   normalizeRetryConfig,
+  retryAfterDelay,
   shouldRetry,
   sleep,
 } from './retry';
@@ -37,6 +39,7 @@ export type {
   ApiResponse,
   AsyncRequestTransform,
   AsyncResponseTransform,
+  BackoffOptions,
   InterceptorHandler,
   InterceptorManager,
   Monitor,
@@ -49,6 +52,7 @@ export type {
   RequestTransform,
   ResponseTransform,
   RetryConfig,
+  RetryContext,
 } from './types';
 export { isErrorResponse, isOkResponse, PROBLEM_CODE } from './types';
 export { buildQueryString, buildUrl } from './url';
