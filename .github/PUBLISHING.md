@@ -64,6 +64,14 @@ If publishing failed after the release was created (transient npm or runner erro
 - **Authentication**: OIDC, no tokens stored in GitHub
 - **Provenance**: generated for every publish
 
+## Known registry quirk: the stray 4.0.0
+
+A `4.0.0` was published by mistake on 2025-10-30 and cannot be removed (npm only allows unpublishing within 72 hours). Consequences:
+
+- The workflow publishes with an explicit `--tag latest`; without it npm fails with "Cannot implicitly apply the latest tag because previously published version 4.0.0 is higher".
+- Run `npm deprecate @mshindi-labs/refetch@4.0.0 "Published by mistake; use 3.x"` once from a logged-in maintainer account so `npm install @mshindi-labs/refetch@4` warns instead of installing it.
+- The first real v4 release must be **4.0.1 or higher** (for example `Release-As: 4.1.0`), because 4.0.0 is taken.
+
 ## Troubleshooting
 
 - **No Release PR after merging**: check the "Allow GitHub Actions to create and approve pull requests" setting, and that the commits since the last release contain `fix`, `feat`, `perf` or `revert` types (hidden types such as `docs` or `chore` alone do not produce a release)
@@ -71,6 +79,7 @@ If publishing failed after the release was created (transient npm or runner erro
 - **"Unable to authenticate"**: the workflow filename in npmjs.com settings must be exactly `publish.yml`
 - **Publish job did not run after merging the Release PR**: open the "Release & Publish" run for the merge commit; re-run via *Run workflow* with the tag if needed
 - **Verify step fails**: run `npm run ci` locally; the tag is not published until every check is green
+- **Release created but publish failed**: the tag and GitHub release already exist, so fix the cause and re-publish that tag via *Run workflow*; nothing needs to be re-tagged
 
 ## Resources
 
