@@ -7,7 +7,9 @@ export function buildQueryString(params: Record<string, unknown>): string {
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null) {
       if (Array.isArray(value)) {
-        value.forEach((item) => searchParams.append(key, String(item)));
+        value.forEach((item) => {
+          searchParams.append(key, String(item));
+        });
       } else {
         searchParams.append(key, String(value));
       }

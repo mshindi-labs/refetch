@@ -37,9 +37,7 @@ export function prepareRequestBody(data: unknown): BodyInit | undefined {
  *   - `undefined` → no body, no Content-Type needed
  *   - `string`    → set this value
  */
-export function getBodyContentType(
-  body: BodyInit | undefined,
-): string | null | undefined {
+export function getBodyContentType(body: BodyInit | undefined): string | null | undefined {
   if (body === undefined) return undefined;
 
   if (body instanceof FormData) return null;

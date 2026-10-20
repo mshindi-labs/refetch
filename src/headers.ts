@@ -1,17 +1,21 @@
-export function mergeHeaders(
-  ...headersList: (HeadersInit | undefined)[]
-): Headers {
+export function mergeHeaders(...headersList: (HeadersInit | undefined)[]): Headers {
   const merged = new Headers();
 
   for (const headers of headersList) {
     if (!headers) continue;
 
     if (headers instanceof Headers) {
-      headers.forEach((value, key) => merged.set(key, value));
+      headers.forEach((value, key) => {
+        merged.set(key, value);
+      });
     } else if (Array.isArray(headers)) {
-      headers.forEach(([key, value]) => merged.set(key, value));
+      headers.forEach(([key, value]) => {
+        merged.set(key, value);
+      });
     } else {
-      Object.entries(headers).forEach(([key, value]) => merged.set(key, value));
+      Object.entries(headers).forEach(([key, value]) => {
+        merged.set(key, value);
+      });
     }
   }
 
