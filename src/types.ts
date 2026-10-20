@@ -94,7 +94,11 @@ export interface ResolvedRequest {
   /** Full URL including the query string. */
   readonly url: string;
   readonly method: string;
-  /** Headers as sent, lower-cased, including defaults and the auto Content-Type. */
+  /**
+   * Headers as sent, lower-cased, including defaults and the auto Content-Type. Credential
+   * headers (authorization, proxy-authorization, cookie, set-cookie, x-api-key, x-auth-token)
+   * are replaced by `[redacted]`; `config.headers` keeps the real values for replays.
+   */
   readonly headers: Record<string, string>;
   /** The `data` before serialisation. */
   readonly body?: unknown;

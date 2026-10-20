@@ -172,6 +172,27 @@ describe('response.request', () => {
     });
   });
 
+  it('redacts credential headers in the snapshot but keeps the replayable config intact', async () => {
+    const result = asOk(
+      await api.get<EchoPayload>('/echo', undefined, {
+        headers: {
+          Authorization: 'Bearer secret',
+          Cookie: 'sid=1',
+          'X-Api-Key': 'k',
+          'X-Trace': 't',
+        },
+      }),
+    );
+    expect(result.request?.headers).toMatchObject({
+      authorization: '[redacted]',
+      cookie: '[redacted]',
+      'x-api-key': '[redacted]',
+      'x-trace': 't',
+    });
+    expect(mergeHeaders(result.request?.config.headers).get('authorization')).toBe('Bearer secret');
+    expect(result.data.headers.authorization).toBe('Bearer secret');
+  });
+
   it('is present on http and transport failures', async () => {
     const http = asError(await api.get('/status/500'));
     expect(http.request).toMatchObject({

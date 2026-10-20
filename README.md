@@ -92,7 +92,7 @@ interface ApiResponse<T> {
   headers?: Record<string, string>;
   duration?: number;        // milliseconds
   response?: Response;      // raw fetch Response
-  request?: ResolvedRequest; // url, method, headers as sent, body, config, attempt (always set by the client)
+  request?: ResolvedRequest; // url, method, headers as sent (credentials redacted), body, config, attempt
 }
 
 // When ok === false, the error field is also present:
@@ -200,7 +200,7 @@ api.interceptors.response.clear();
 
 **Short-circuiting.** A request interceptor may return `{ response }` instead of a config: no network call is made and that response still passes through the response interceptors and monitors (`response.request.attempt` is `0`). Handy for caches and offline modes.
 
-**Request context and re-issuing.** Every response carries `response.request`: the URL, method and headers as sent, the body, the post-interceptor `config` and the attempt number. Pass `config` back to `api.any()` to replay a request, and use `config.context` (never sent) to carry state between interceptors. The classic refresh-on-401:
+**Request context and re-issuing.** Every response carries `response.request`: the URL, method and headers as sent (credential headers such as `Authorization`, `Cookie` and `X-Api-Key` show as `[redacted]`, so the snapshot is safe to log), the body, the post-interceptor `config` with the real headers for replays, and the attempt number. Pass `config` back to `api.any()` to replay a request, and use `config.context` (never sent) to carry state between interceptors. The classic refresh-on-401:
 
 ```typescript
 let token = await loadToken();

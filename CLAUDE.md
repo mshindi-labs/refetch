@@ -70,7 +70,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
    - `fetch` with the attempt signal (caller signal + `totalTimeout` deadline + per-attempt timeout); the same signal bounds the body read, so timeouts and cancels during parsing surface as such
    - `parseResponseBody` — content-type-aware (see below); throws `ParseError` for undecodable bodies. On a 2xx that becomes `PARSE_ERROR` / `kind: 'parse'` with `data` = raw text and status/headers kept; on a non-2xx the HTTP error wins and `data` is the raw text; a `TypeError` while reading (connection drop) becomes `NetworkError`
    - `normalizeSuccessResponse` or `normalizeErrorResponse` + `buildRefetchError`
-   - `response.request` (`ResolvedRequest`: url, method, headers as sent, body, post-interceptor config, 1-based attempt) is attached on every path; `config.context` carries user data and is never sent
+   - `response.request` (`ResolvedRequest`: url, method, headers as sent with credential headers redacted, body, post-interceptor config with real headers, 1-based attempt) is attached on every path; `config.context` carries user data and is never sent
    - **Response interceptors applied (FIFO)** — per attempt
    - Monitors notified (fire-and-forget)
    - `shouldRetry` check — repeat if configured

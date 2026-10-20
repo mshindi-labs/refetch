@@ -61,6 +61,24 @@ function isShortCircuit(value: unknown): value is ShortCircuit {
   );
 }
 
+/** Header names whose values never appear in `response.request.headers`. */
+const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'x-auth-token',
+]);
+
+function redactHeaders(headers: Headers): Record<string, string> {
+  const snapshot = headersToObject(headers);
+  for (const name of Object.keys(snapshot)) {
+    if (SENSITIVE_HEADERS.has(name)) snapshot[name] = '[redacted]';
+  }
+  return snapshot;
+}
+
 function describeRequest(
   config: RequestConfig,
   attempt: number,
@@ -70,7 +88,9 @@ function describeRequest(
   return {
     url: url ?? config.url ?? '',
     method: (config.method ?? 'GET').toUpperCase(),
-    headers: headersToObject(headers ?? mergeHeaders(config.headers)),
+    // Snapshot for logging and correlation: credentials are redacted; the replayable
+    // config keeps the real values.
+    headers: redactHeaders(headers ?? mergeHeaders(config.headers)),
     body: config.data,
     config,
     attempt,
