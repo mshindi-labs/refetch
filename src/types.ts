@@ -37,7 +37,10 @@ export interface RetryConfig {
   attempts: number;
   /** Fixed delay in ms, or a function returning ms for each retry (1-based attempt number). */
   delay?: number | ((attempt: number) => number);
-  /** Return true to retry. Defaults to retrying on any non-ok response except 400/401/403. */
+  /**
+   * Return true to retry. Defaults to retrying on any non-ok response except
+   * 400/401/403/404/422. Cancelled requests and total-timeout expiries are never retried.
+   */
   condition?: (response: ApiResponse<unknown>) => boolean;
   /** Called before each retry attempt. */
   onRetry?: (attempt: number, response: ApiResponse<unknown>) => void;
@@ -74,7 +77,10 @@ export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
   method?: string;
   params?: Record<string, unknown>;
   data?: unknown;
-  timeout?: number;
+  /** Per-attempt timeout in ms (covers headers and body). `0` or `false` disables it. */
+  timeout?: number | false;
+  /** Deadline for the whole call including retries and back-off. Disabled by default. */
+  totalTimeout?: number | false;
   baseURL?: string;
   /** Retry on failure. Number = attempt count shorthand; object for full control. */
   retry?: number | RetryConfig;
@@ -83,7 +89,10 @@ export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
 export interface RefetchConfig extends Omit<RequestInit, 'method' | 'body'> {
   baseURL?: string;
   headers?: HeadersInit;
-  timeout?: number;
+  /** Default per-attempt timeout in ms. `0` or `false` disables it. Defaults to 10 000. */
+  timeout?: number | false;
+  /** Default deadline for a whole call including retries. Disabled by default. */
+  totalTimeout?: number | false;
   /** Instance-wide retry default. Overridden by per-request `retry`. */
   retry?: number | RetryConfig;
 }

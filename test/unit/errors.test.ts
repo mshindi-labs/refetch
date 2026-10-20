@@ -4,10 +4,44 @@ import {
   CancelError,
   classifyProblem,
   createCancelToken,
+  NetworkError,
+  TimeoutError,
 } from '../../src/errors';
 import { PROBLEM_CODE } from '../../src/types';
 
 const named = (name: string, message: string): Error => Object.assign(new Error(message), { name });
+
+/** What undici throws for a refused connection: TypeError('fetch failed') with a coded cause. */
+const refused = () =>
+  Object.assign(new TypeError('fetch failed'), {
+    cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), { code: 'ECONNREFUSED' }),
+  });
+
+describe('TimeoutError and NetworkError', () => {
+  it('TimeoutError carries the timeout and scope', () => {
+    const error = new TimeoutError(500);
+    expect(error.name).toBe('TimeoutError');
+    expect(error.timeout).toBe(500);
+    expect(error.scope).toBe('request');
+    expect(error.message).toContain('500');
+    expect(new TimeoutError(9, 'total').scope).toBe('total');
+  });
+
+  it('NetworkError wraps the transport TypeError and extracts the error code', () => {
+    const cause = refused();
+    const error = new NetworkError(cause);
+    expect(error).toBeInstanceOf(TypeError);
+    expect(error.name).toBe('NetworkError');
+    expect(error.message).toBe('fetch failed');
+    expect(error.cause).toBe(cause);
+    expect(error.code).toBe('ECONNREFUSED');
+  });
+
+  it('NetworkError tolerates causes without a code or that are not Errors', () => {
+    expect(new NetworkError(new TypeError('Load failed')).code).toBeUndefined();
+    expect(new NetworkError('boom').message).toBe('boom');
+  });
+});
 
 describe('CancelError and createCancelToken', () => {
   it('defaults the message and sets the name', () => {
@@ -69,6 +103,30 @@ describe('classifyProblem', () => {
     ['a 4xx status', undefined, 404, PROBLEM_CODE.CLIENT_ERROR],
     ['a 5xx status', undefined, 503, PROBLEM_CODE.SERVER_ERROR],
     ['a 2xx status', undefined, 204, PROBLEM_CODE.NONE],
+    [
+      'a TimeoutError raised by the client',
+      new TimeoutError(10),
+      undefined,
+      PROBLEM_CODE.TIMEOUT_ERROR,
+    ],
+    [
+      'a NetworkError with a connection code',
+      new NetworkError(refused()),
+      undefined,
+      PROBLEM_CODE.CONNECTION_ERROR,
+    ],
+    [
+      'a NetworkError without a code',
+      new NetworkError(new TypeError('Load failed')),
+      undefined,
+      PROBLEM_CODE.NETWORK_ERROR,
+    ],
+    [
+      'a raw TypeError carrying a connection code',
+      refused(),
+      undefined,
+      PROBLEM_CODE.CONNECTION_ERROR,
+    ],
     ['nothing at all', undefined, undefined, PROBLEM_CODE.UNKNOWN_ERROR],
   ])('classifies %s', (_label, error, status, expected) => {
     expect(classifyProblem(status, error)).toBe(expected);
@@ -78,14 +136,13 @@ describe('classifyProblem', () => {
     expect(classifyProblem(500, named('AbortError', 'aborted'))).toBe(PROBLEM_CODE.CANCEL_ERROR);
   });
 
-  // Known bugs #2 and #10 — flip `it.fails` to `it` when fixed.
-  it.fails('classifies the internal timeout reason as TIMEOUT_ERROR (known bug #2)', () => {
+  it('falls back to the message for foreign errors that mention a timeout', () => {
     expect(classifyProblem(undefined, new Error('Request timeout'))).toBe(
       PROBLEM_CODE.TIMEOUT_ERROR,
     );
   });
 
-  it.fails('classifies Safari "Load failed" as NETWORK_ERROR (known bug #10)', () => {
+  it('classifies Safari "Load failed" as NETWORK_ERROR', () => {
     expect(classifyProblem(undefined, new TypeError('Load failed'))).toBe(
       PROBLEM_CODE.NETWORK_ERROR,
     );
@@ -135,11 +192,19 @@ describe('buildRefetchError', () => {
     });
   });
 
+  it('treats an opaque status 0 as an http error', () => {
+    expect(buildRefetchError(new Error('HTTP 0'), 0, 1, '')).toEqual({
+      kind: 'http',
+      status: 0,
+      statusText: '',
+    });
+  });
+
   it('falls back to unknown', () => {
     expect(buildRefetchError(new Error('???')).kind).toBe('unknown');
   });
 
-  it.fails('treats statuses outside 4xx/5xx as http errors when not ok (known bug #10)', () => {
+  it('treats statuses outside 4xx/5xx as http errors when not ok', () => {
     expect(buildRefetchError(new Error('HTTP 301'), 301, 1, 'Moved Permanently').kind).toBe('http');
   });
 });

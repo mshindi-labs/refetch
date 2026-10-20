@@ -1,23 +1,77 @@
 import { getBodyContentType, prepareRequestBody, shouldHaveBody } from './body';
 import { DEFAULT_HEADERS } from './constants';
-import { fetchWithTimeout } from './fetch';
+import { CancelError, NetworkError, TimeoutError } from './errors';
+import { type AttemptSignal, createAttemptSignal, resolveTimeout } from './fetch';
 import { mergeHeaders } from './headers';
 import { createInterceptorManager } from './interceptors';
 import { normalizeErrorResponse, normalizeSuccessResponse, parseResponseBody } from './response';
 import { getRetryDelay, normalizeRetryConfig, shouldRetry, sleep } from './retry';
-import {
-  type ApiResponse,
-  type AsyncRequestTransform,
-  type AsyncResponseTransform,
-  type Monitor,
-  PROBLEM_CODE,
-  type RefetchConfig,
-  type RefetchInstance,
-  type RequestConfig,
-  type RequestTransform,
-  type ResponseTransform,
+import type {
+  ApiResponse,
+  AsyncRequestTransform,
+  AsyncResponseTransform,
+  Monitor,
+  RefetchConfig,
+  RefetchInstance,
+  RequestConfig,
+  RequestTransform,
+  ResponseTransform,
 } from './types';
 import { buildUrl } from './url';
+
+/** Config keys that belong to refetch and must not reach `fetch()`. */
+const REFETCH_KEYS = [
+  'url',
+  'method',
+  'params',
+  'data',
+  'timeout',
+  'totalTimeout',
+  'baseURL',
+  'retry',
+  'signal',
+  'headers',
+] as const;
+
+function toRequestInit(config: RequestConfig): RequestInit {
+  const init: Record<string, unknown> = { ...config };
+  for (const key of REFETCH_KEYS) delete init[key];
+  return init as RequestInit;
+}
+
+/** Turns whatever aborted a signal into an Error the classifier understands. */
+function abortReasonToError(reason: unknown): Error {
+  if (reason instanceof Error) return reason;
+  return new CancelError(typeof reason === 'string' ? reason : undefined);
+}
+
+/**
+ * Picks the error to report for a failed attempt: the abort reason when the attempt was
+ * aborted (timeout, cancellation, total deadline), a NetworkError for transport failures
+ * thrown by `fetch` itself, and the raw error otherwise.
+ */
+function resolveFailure(error: unknown, signal: AbortSignal, fromTransport: boolean): Error {
+  if (signal.aborted) return abortReasonToError(signal.reason);
+  if (fromTransport && error instanceof TypeError && !(error instanceof NetworkError)) {
+    return new NetworkError(error);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+interface Deadline {
+  readonly signal: AbortSignal | undefined;
+  dispose(): void;
+}
+
+function createDeadline(totalTimeout: number | false): Deadline {
+  if (totalTimeout === false) return { signal: undefined, dispose: () => undefined };
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new TimeoutError(totalTimeout, 'total')),
+    totalTimeout,
+  );
+  return { signal: controller.signal, dispose: () => clearTimeout(timer) };
+}
 
 export function create(config: RefetchConfig = {}): RefetchInstance {
   const normalizedConfig = { ...config };
@@ -79,21 +133,34 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
 
   // ─── Single attempt ─────────────────────────────────────────────────────
 
+  async function finalize<T>(response: ApiResponse<T>): Promise<ApiResponse<T>> {
+    const finalResponse = await applyResponseInterceptors(response);
+    notifyMonitors(finalResponse);
+    return finalResponse;
+  }
+
   async function executeSingleRequest<T>(
     config: RequestConfig,
     startTime: number,
+    parentSignal: AbortSignal | undefined,
   ): Promise<ApiResponse<T>> {
-    try {
-      const url = config.url ?? '';
-      const fullUrl = buildUrl(config.baseURL || state.config.baseURL, url, config.params);
+    const attempt: AttemptSignal = createAttemptSignal({
+      signal: parentSignal,
+      timeout: resolveTimeout(config.timeout, state.config.timeout),
+    });
+    let transportFailed = false;
 
-      const body = shouldHaveBody(config.method ?? 'GET')
-        ? prepareRequestBody(config.data)
-        : undefined;
+    try {
+      const method = config.method ?? 'GET';
+      const fullUrl = buildUrl(
+        config.baseURL || state.config.baseURL,
+        config.url ?? '',
+        config.params,
+      );
+      const body = shouldHaveBody(method) ? prepareRequestBody(config.data) : undefined;
 
       // Always merge Accept from defaults; Content-Type is set per body type below
       const headers = mergeHeaders(DEFAULT_HEADERS, state.config.headers, config.headers);
-
       const bodyContentType = getBodyContentType(body);
       if (bodyContentType === null) {
         // FormData: browser must set Content-Type with multipart boundary
@@ -102,39 +169,43 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         headers.set('Content-Type', bodyContentType);
       }
 
-      const fetchConfig: RequestInit & { timeout?: number } = {
-        ...config,
-        method: config.method,
-        headers,
-        body,
-        timeout: config.timeout || state.config.timeout,
-      };
-
-      const response = await fetchWithTimeout(fullUrl, fetchConfig);
+      let response: Response;
+      try {
+        transportFailed = true;
+        response = await fetch(fullUrl, {
+          ...toRequestInit(config),
+          method,
+          headers,
+          body,
+          signal: attempt.signal,
+        });
+        transportFailed = false;
+      } catch (error) {
+        throw resolveFailure(error, attempt.signal, true);
+      }
       const duration = Date.now() - startTime;
 
+      // The same signal bounds the body read, so a timeout or cancel here surfaces as such.
       const data = await parseResponseBody<T>(response);
+      if (attempt.signal.aborted) throw abortReasonToError(attempt.signal.reason);
 
       let apiResponse: ApiResponse<T>;
       if (response.ok) {
         apiResponse = normalizeSuccessResponse(data as T, response, duration);
       } else {
         const error = new Error(
-          `HTTP ${config.method} ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
+          `HTTP ${method} ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
         );
         apiResponse = normalizeErrorResponse<T>(error, response, duration);
         apiResponse.data = data as T;
       }
-
-      apiResponse = await applyResponseInterceptors(apiResponse);
-      notifyMonitors(apiResponse);
-      return apiResponse;
+      return await finalize(apiResponse);
     } catch (error) {
       const duration = Date.now() - startTime;
-      let apiResponse = normalizeErrorResponse<T>(error as Error, undefined, duration);
-      apiResponse = await applyResponseInterceptors(apiResponse);
-      notifyMonitors(apiResponse);
-      return apiResponse;
+      const failure = resolveFailure(error, attempt.signal, transportFailed);
+      return await finalize(normalizeErrorResponse<T>(failure, undefined, duration));
+    } finally {
+      attempt.dispose();
     }
   }
 
@@ -161,27 +232,61 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       config.params = dataOrParams as Record<string, unknown> | undefined;
     }
 
+    // Validate up front so invalid values are programmer errors, not error responses.
+    resolveTimeout(config.timeout, state.config.timeout);
+    const totalTimeout = resolveTimeout(
+      config.totalTimeout,
+      state.config.totalTimeout ?? false,
+      'totalTimeout',
+    );
+
     // Request interceptors run once before any retry
     config = await applyRequestInterceptors(config);
 
     const retryConfig = normalizeRetryConfig(config.retry ?? state.config.retry);
-    let attempt = 0;
-    let lastResponse!: ApiResponse<T>;
+    const deadline = createDeadline(totalTimeout);
+    // One signal for the whole call: the caller's signal plus the total deadline. Attempts
+    // layer their per-attempt timeout on top; back-off sleeps watch it directly.
+    const call = createAttemptSignal({
+      signal: config.signal,
+      timeout: false,
+      extraSignals: deadline.signal ? [deadline.signal] : [],
+    });
 
-    do {
-      if (attempt > 0 && retryConfig) {
-        await sleep(getRetryDelay(retryConfig, attempt));
-        retryConfig.onRetry?.(attempt, lastResponse);
-      }
-      lastResponse = await executeSingleRequest<T>(config, startTime);
-      attempt++;
-    } while (
-      retryConfig !== null &&
-      attempt < retryConfig.attempts &&
-      shouldRetry(lastResponse, retryConfig)
-    );
+    try {
+      let attempt = 0;
+      let lastResponse!: ApiResponse<T>;
 
-    return lastResponse;
+      do {
+        if (attempt > 0 && retryConfig) {
+          try {
+            await sleep(getRetryDelay(retryConfig, attempt), call.signal);
+          } catch (reason) {
+            lastResponse = await finalize(
+              normalizeErrorResponse<T>(
+                abortReasonToError(reason),
+                undefined,
+                Date.now() - startTime,
+              ),
+            );
+            break;
+          }
+          retryConfig.onRetry?.(attempt, lastResponse);
+        }
+        lastResponse = await executeSingleRequest<T>(config, startTime, call.signal);
+        attempt++;
+      } while (
+        retryConfig !== null &&
+        attempt < retryConfig.attempts &&
+        !call.signal.aborted &&
+        shouldRetry(lastResponse, retryConfig)
+      );
+
+      return lastResponse;
+    } finally {
+      call.dispose();
+      deadline.dispose();
+    }
   }
 
   // ─── HTTP method wrappers ────────────────────────────────────────────────
@@ -273,6 +378,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       method: 'GET',
       params,
     };
+    resolveTimeout(mergedConfig.timeout, state.config.timeout);
 
     mergedConfig = await applyRequestInterceptors(mergedConfig);
 
@@ -281,19 +387,27 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       mergedConfig.url || url,
       mergedConfig.params,
     );
-
     const headers = mergeHeaders(DEFAULT_HEADERS, state.config.headers, mergedConfig.headers);
 
+    // The timeout covers the wait for headers only; the caller's signal stays linked to the
+    // body stream so an abort after headers still cancels the download.
+    const attempt = createAttemptSignal({
+      signal: mergedConfig.signal,
+      timeout: resolveTimeout(mergedConfig.timeout, state.config.timeout),
+    });
+
     try {
-      const response = await fetchWithTimeout(fullUrl, {
-        ...mergedConfig,
+      const response = await fetch(fullUrl, {
+        ...toRequestInit(mergedConfig),
         method: 'GET',
         headers,
-        timeout: mergedConfig.timeout ?? state.config.timeout,
+        signal: attempt.signal,
       });
+      attempt.clearTimeout();
       const duration = Date.now() - startTime;
 
       if (!response.ok) {
+        attempt.dispose();
         const error = new Error(
           `HTTP GET ${fullUrl} failed with status ${response.status}: ${response.statusText}`,
         );
@@ -301,6 +415,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       }
 
       if (!response.body) {
+        attempt.dispose();
         const error = new Error(
           'Response body is null — streaming not supported in this environment',
         );
@@ -309,10 +424,10 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
 
       return normalizeSuccessResponse(response.body as ReadableStream<T>, response, duration);
     } catch (error) {
+      attempt.dispose();
       const duration = Date.now() - startTime;
-      return normalizeErrorResponse(error as Error, undefined, duration) as ApiResponse<
-        ReadableStream<T>
-      >;
+      const failure = resolveFailure(error, attempt.signal, true);
+      return normalizeErrorResponse(failure, undefined, duration) as ApiResponse<ReadableStream<T>>;
     }
   }
 

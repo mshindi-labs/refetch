@@ -59,9 +59,7 @@ describe('stream()', () => {
     expect(asError(await dead.stream('/x')).error.kind).toBe('network');
   });
 
-  // Known bug #4 — the abort listener is removed once headers arrive, so aborting the
-  // caller's signal afterwards no longer cancels the body stream.
-  it.fails('can be cancelled mid-stream (known bug #4)', async () => {
+  it('can be cancelled mid-stream', async () => {
     const controller = new AbortController();
     const result = asOk(
       await api.stream('/slow-body?ms=500', undefined, { signal: controller.signal }),
@@ -71,6 +69,11 @@ describe('stream()', () => {
     expect(new TextDecoder().decode(first.value)).toBe('{"partial":');
     controller.abort();
     await expect(reader.read()).rejects.toThrow();
+  });
+
+  it('applies the timeout to the headers only, never to the body read', async () => {
+    const result = asOk(await api.stream('/slow-body?ms=300', undefined, { timeout: 100 }));
+    expect(await readAll(result.data)).toBe('{"partial":true}');
   });
 
   it.todo('supports POST bodies and SSE decoding (#23)');

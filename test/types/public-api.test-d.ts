@@ -6,8 +6,10 @@ import {
   create,
   isErrorResponse,
   isOkResponse,
+  type RefetchConfig,
   type RefetchError,
   type RefetchInstance,
+  type RequestConfig,
 } from '../../src/index';
 
 interface User {
@@ -67,6 +69,13 @@ describe('public API types', () => {
       // @ts-expect-error — `error` only exists on ApiErrorResponse until #12 lands
       result.error;
     }
+  });
+
+  it('accepts false to disable timeouts and exposes totalTimeout', () => {
+    expectTypeOf<RequestConfig['timeout']>().toEqualTypeOf<number | false | undefined>();
+    expectTypeOf<RefetchConfig['timeout']>().toEqualTypeOf<number | false | undefined>();
+    expectTypeOf<RequestConfig['totalTimeout']>().toEqualTypeOf<number | false | undefined>();
+    expectTypeOf<RefetchConfig['totalTimeout']>().toEqualTypeOf<number | false | undefined>();
   });
 
   it('exposes RefetchError as a discriminated union on kind', () => {

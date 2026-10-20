@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { create, PROBLEM_CODE, type RefetchInstance } from '../../src/index';
+import { create, NetworkError, PROBLEM_CODE, type RefetchInstance } from '../../src/index';
 import { asError, asOk } from '../helpers/assert';
-import { type EchoPayload, startTestServer, type TestServer } from '../helpers/server';
+import {
+  closedBaseURL,
+  type EchoPayload,
+  startTestServer,
+  type TestServer,
+} from '../helpers/server';
 
 let server: TestServer;
 let api: RefetchInstance;
@@ -243,21 +248,29 @@ describe('error responses', () => {
     expect(asOk(await api.get('/redirect')).data).toEqual({ ok: true });
   });
 
-  // Known bug #10 — 3xx statuses fall through to kind: 'unknown'.
-  it.fails('reports a 301 under redirect: "manual" as an http error (known bug #10)', async () => {
+  it('reports a 301 under redirect: "manual" as an http error', async () => {
     const result = asError(await api.get('/redirect', undefined, { redirect: 'manual' }));
     expect(result.status).toBe(301);
     expect(result.error.kind).toBe('http');
   });
 
-  it('classifies connection failures as NETWORK_ERROR', async () => {
-    const dead = create({ baseURL: 'http://127.0.0.1:1', timeout: 2000 });
-    const result = asError(await dead.get('/json'));
+  it('classifies blocked ports as NETWORK_ERROR without a code', async () => {
+    const blocked = create({ baseURL: 'http://127.0.0.1:1' });
+    const result = asError(await blocked.get('/json'));
     expect(result.problem).toBe(PROBLEM_CODE.NETWORK_ERROR);
     expect(result.error.kind).toBe('network');
-    expect(result.status).toBeUndefined();
-    expect(result.originalError).toBeInstanceOf(TypeError);
+    expect(result.originalError).toBeInstanceOf(NetworkError);
+    expect((result.originalError as NetworkError).code).toBeUndefined();
   });
 
-  it.todo('maps ECONNREFUSED to CONNECTION_ERROR (#10)');
+  it('classifies refused connections as CONNECTION_ERROR with a NetworkError cause', async () => {
+    const dead = create({ baseURL: await closedBaseURL(), timeout: 2000 });
+    const result = asError(await dead.get('/json'));
+    expect(result.problem).toBe(PROBLEM_CODE.CONNECTION_ERROR);
+    expect(result.error.kind).toBe('network');
+    expect(result.status).toBeUndefined();
+    expect(result.originalError).toBeInstanceOf(NetworkError);
+    expect(result.originalError).toBeInstanceOf(TypeError);
+    expect((result.originalError as NetworkError).code).toBe('ECONNREFUSED');
+  });
 });
