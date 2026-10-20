@@ -59,7 +59,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 1. HTTP method called (e.g., `api.get(url, params, config)`)
 2. Config merged: `{ ...state.config, ...requestConfig, url, method }`
 3. `shouldHaveBody` → assign `config.data` (body methods) or `config.params` (GET/HEAD/DELETE); `config.headers` is normalised to a lower-cased plain object with the instance headers merged in
-4. **Request interceptors applied (LIFO)** — return-based, run **once before any retry**; a throwing interceptor yields an error response (`UNKNOWN_ERROR` / `kind: 'unknown'`) instead of a rejection
+4. **Request interceptors applied (LIFO)** — return-based, run **once before any retry**; a throwing interceptor yields an error response (`UNKNOWN_ERROR` / `kind: 'unknown'`) instead of a rejection; returning `{ response }` short-circuits (no network call, `request.attempt === 0`, response interceptors and monitors still run)
 5. `normalizeRetryConfig` determines retry settings
 6. **Retry loop** (`do/while`):
    - `prepareRequestBody(config.data)` → `BodyInit | undefined`
@@ -70,6 +70,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
    - `fetch` with the attempt signal (caller signal + `totalTimeout` deadline + per-attempt timeout); the same signal bounds the body read, so timeouts and cancels during parsing surface as such
    - `parseResponseBody` — content-type-aware (see below); throws `ParseError` for undecodable bodies. On a 2xx that becomes `PARSE_ERROR` / `kind: 'parse'` with `data` = raw text and status/headers kept; on a non-2xx the HTTP error wins and `data` is the raw text; a `TypeError` while reading (connection drop) becomes `NetworkError`
    - `normalizeSuccessResponse` or `normalizeErrorResponse` + `buildRefetchError`
+   - `response.request` (`ResolvedRequest`: url, method, headers as sent, body, post-interceptor config, 1-based attempt) is attached on every path; `config.context` carries user data and is never sent
    - **Response interceptors applied (FIFO)** — per attempt
    - Monitors notified (fire-and-forget)
    - `shouldRetry` check — repeat if configured
@@ -156,6 +157,7 @@ Each HOF has type `(instance: RefetchInstance) => RefetchInstance`. They registe
 - `request()` and `stream()` never reject because of an interceptor: interceptor errors become error responses that still reach response interceptors and monitors
 - `src/retry.ts` has no runtime imports (keeps the `/retry` sub-path tiny)
 - Request interceptors always receive `config.headers` as a lower-cased plain object; middleware must merge with `mergeHeaders`/`setRequestHeader`, never spread `HeadersInit`
+- Every response the client produces has `request` set; the 401-refresh recipe is `api.any({ ...response.request.config, context: { refreshed: true } })`
 - `buildQueryString` never emits `[object Object]`: nested objects throw, Dates serialise as ISO 8601
 - FormData `Content-Type` must always be deleted — browser manages the boundary
 - `npm run lint`, `npm run typecheck` and `npm test` must pass before any commit
