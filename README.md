@@ -232,7 +232,7 @@ await api.get('/data', undefined, { retry: { attempts: 5, delay: exponentialBack
 | `jitter` | `false` | full jitter in `[0, delay]` |
 | `maxDelay` | – | cap for computed delays |
 | `respectRetryAfter` | `true` | wait for `Retry-After` (seconds or HTTP-date) or `RateLimit-Reset` / `X-RateLimit-Reset` instead of the computed delay; never jittered |
-| `maxRetryAfter` | unlimited | stop retrying when the server asks for longer than this |
+| `maxRetryAfter` | `60_000` | stop retrying when the server asks for longer than this (caps hostile or absurd `Retry-After` values) |
 | `methods` | all | only retry these methods (case-insensitive) |
 | `statusCodes` | see below | only retry these status codes; transport failures stay retryable |
 | `condition` | see below | full override: return `true` to retry |

@@ -84,6 +84,11 @@ describe('getRetryDelay back-off strategies', () => {
     random.mockRestore();
   });
 
+  it('clamps any computed delay to the setTimeout maximum', () => {
+    expect(getRetryDelay({ attempts: 2, delay: 2 ** 40 }, 1)).toBe(2_147_483_647);
+    expect(getRetryDelay({ attempts: 2, delay: () => 2 ** 40 }, 1)).toBe(2_147_483_647);
+  });
+
   it('lets a delay function win over the strategy', () => {
     expect(getRetryDelay({ attempts: 3, delay: (n) => n * 7, backoff: 'exponential' }, 2)).toBe(14);
   });

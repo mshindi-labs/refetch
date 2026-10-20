@@ -5,7 +5,14 @@ import { type AttemptSignal, createAttemptSignal, resolveTimeout } from './fetch
 import { headersToObject, mergeHeaders } from './headers';
 import { createInterceptorManager } from './interceptors';
 import { normalizeErrorResponse, normalizeSuccessResponse, parseResponseBody } from './response';
-import { getRetryDelay, normalizeRetryConfig, retryAfterDelay, shouldRetry, sleep } from './retry';
+import {
+  DEFAULT_MAX_RETRY_AFTER,
+  getRetryDelay,
+  normalizeRetryConfig,
+  retryAfterDelay,
+  shouldRetry,
+  sleep,
+} from './retry';
 import type {
   ApiResponse,
   AsyncRequestTransform,
@@ -301,10 +308,11 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         if (attempt > 0 && retryConfig) {
           const serverDelay =
             retryConfig.respectRetryAfter === false ? undefined : retryAfterDelay(lastResponse);
-          // A server asking for longer than maxRetryAfter means "come back later", not "retry now".
+          // A server asking for longer than maxRetryAfter (60 s by default) means "come back
+          // later", not "retry now"; the cap also keeps a hostile header from parking the call.
           if (
             serverDelay !== undefined &&
-            serverDelay > (retryConfig.maxRetryAfter ?? Number.POSITIVE_INFINITY)
+            serverDelay > (retryConfig.maxRetryAfter ?? DEFAULT_MAX_RETRY_AFTER)
           ) {
             break;
           }

@@ -52,7 +52,7 @@ export interface RetryConfig {
   maxDelay?: number;
   /** Honour `Retry-After` and rate-limit reset headers instead of the computed delay. Default `true`. */
   respectRetryAfter?: boolean;
-  /** Give up instead of waiting when the server asks for more than this many ms. Default unlimited. */
+  /** Give up instead of waiting when the server asks for more than this many ms. Default 60 000. */
   maxRetryAfter?: number;
   /** Only retry these HTTP methods (case-insensitive). Default: every method. */
   methods?: string[];

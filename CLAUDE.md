@@ -116,7 +116,7 @@ Request interceptors are **reversed** before execution (LIFO). Response intercep
 request interceptors → once
 do {
   if (attempt > 0) {
-    delay = retryAfterDelay(lastResponse) ?? getRetryDelay(config, attempt)   // server timing wins; stop if > maxRetryAfter
+    delay = retryAfterDelay(lastResponse) ?? getRetryDelay(config, attempt)   // server timing wins; stop if > maxRetryAfter (60 s default); delays clamp to 2^31-1 ms
     onRetry?.(attempt, lastResponse, delay); await sleep(delay, callSignal)      // abortable: cancel/total timeout ends the call
   }
   lastResponse = await executeSingleRequest(config, startTime)

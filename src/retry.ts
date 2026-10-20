@@ -7,6 +7,10 @@ import type {
 } from './types';
 
 const DEFAULT_NON_RETRYABLE = new Set([400, 401, 403, 404, 422]);
+/** Longest server-requested delay honoured by default; longer means "come back later". */
+export const DEFAULT_MAX_RETRY_AFTER = 60_000;
+/** setTimeout cannot schedule beyond this; larger values would fire immediately. */
+const MAX_DELAY = 2_147_483_647;
 const RATE_LIMIT_RESET_HEADERS = ['ratelimit-reset', 'x-ratelimit-reset', 'x-rate-limit-reset'];
 
 export function normalizeRetryConfig(retry?: number | RetryConfig): RetryConfig | null {
@@ -23,12 +27,12 @@ function applyJitter(delay: number, jitter: boolean | undefined): number {
 /** Delay before the given 1-based retry attempt, from `delay`, `backoff`, `maxDelay` and `jitter`. */
 export function getRetryDelay(config: RetryConfig, attempt: number): number {
   const base = config.delay ?? 0;
-  if (typeof base === 'function') return base(attempt);
+  if (typeof base === 'function') return Math.min(MAX_DELAY, base(attempt));
   let delay = base;
   if (config.backoff === 'linear') delay = base * attempt;
   else if (config.backoff === 'exponential') delay = base * 2 ** (attempt - 1);
   if (config.maxDelay !== undefined) delay = Math.min(delay, config.maxDelay);
-  return applyJitter(delay, config.jitter);
+  return applyJitter(Math.min(MAX_DELAY, delay), config.jitter);
 }
 
 /** A `delay` function: `base * factor^(attempt - 1)` capped at `max`, optionally jittered. */

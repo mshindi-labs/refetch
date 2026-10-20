@@ -130,6 +130,14 @@ describe('retry', () => {
     expect(server.hits('/retry-after')).toBe(1);
   });
 
+  it('gives up by default when the server asks for more than 60 seconds', async () => {
+    const result = asError(
+      await api.get('/retry-after?key=hostile&fails=1&after=120', undefined, { retry: 3 }),
+    );
+    expect(result.status).toBe(429);
+    expect(server.hits('/retry-after')).toBe(1);
+  });
+
   it('ignores server timing when respectRetryAfter is false', async () => {
     const started = Date.now();
     const result = asOk(

@@ -26,6 +26,7 @@ export {
   parseResponseBody,
 } from './response';
 export {
+  DEFAULT_MAX_RETRY_AFTER,
   exponentialBackoff,
   getRetryDelay,
   normalizeRetryConfig,
