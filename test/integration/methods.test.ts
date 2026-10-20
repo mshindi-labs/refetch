@@ -146,6 +146,57 @@ describe('HTTP methods', () => {
   });
 });
 
+describe('response.request', () => {
+  it('describes the request as sent on success', async () => {
+    const result = asOk(
+      await api.post<EchoPayload, { n: number }>(
+        '/echo',
+        { n: 1 },
+        { params: { q: 'x' }, context: { tag: 't' } },
+      ),
+    );
+    expect(result.request).toMatchObject({
+      url: `${server.baseURL}/echo?q=x`,
+      method: 'POST',
+      attempt: 1,
+      body: { n: 1 },
+    });
+    expect(result.request?.headers).toMatchObject({
+      accept: 'application/json',
+      'content-type': 'application/json',
+    });
+    expect(result.request?.config).toMatchObject({
+      url: '/echo',
+      method: 'POST',
+      context: { tag: 't' },
+    });
+  });
+
+  it('is present on http and transport failures', async () => {
+    const http = asError(await api.get('/status/500'));
+    expect(http.request).toMatchObject({
+      url: `${server.baseURL}/status/500`,
+      method: 'GET',
+      attempt: 1,
+    });
+    const dead = create({ baseURL: await closedBaseURL() });
+    const network = asError(await dead.get('/x', { a: 1 }));
+    expect(network.request?.url).toMatch(/\/x\?a=1$/);
+    expect(network.request?.method).toBe('GET');
+  });
+
+  it('counts attempts across retries', async () => {
+    const attempts: (number | undefined)[] = [];
+    const local = create({ baseURL: server.baseURL });
+    local.addMonitor((response) => {
+      attempts.push(response.request?.attempt);
+    });
+    const result = asOk(await local.get('/flaky?key=attempts&fails=2', undefined, { retry: 3 }));
+    expect(result.request?.attempt).toBe(3);
+    expect(attempts).toEqual([1, 2, 3]);
+  });
+});
+
 describe('headers and request bodies', () => {
   it('sends Accept: application/json by default and merges instance and request headers', async () => {
     const local = create({

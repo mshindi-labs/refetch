@@ -89,6 +89,28 @@ export type QueryParams = Record<string, unknown> | URLSearchParams | Array<[str
 /** Custom query serializer; returns the query string without the leading `?`. */
 export type ParamsSerializer = (params: QueryParams) => string;
 
+/** The request as it was actually sent, attached to every response. */
+export interface ResolvedRequest {
+  /** Full URL including the query string. */
+  readonly url: string;
+  readonly method: string;
+  /** Headers as sent, lower-cased, including defaults and the auto Content-Type. */
+  readonly headers: Record<string, string>;
+  /** The `data` before serialisation. */
+  readonly body?: unknown;
+  /** The config after request interceptors; pass it to `api.any()` to re-issue the request. */
+  readonly config: RequestConfig;
+  /** 1-based attempt number; 0 when no network call was made (short-circuit, interceptor error). */
+  readonly attempt: number;
+}
+
+/** Return this from a request interceptor to answer without a network call. */
+export interface ShortCircuit<T = unknown> {
+  response: ApiResponse<T>;
+}
+
+export type RequestInterceptorResult = RequestConfig | ShortCircuit;
+
 export interface ApiResponse<T> {
   ok: boolean;
   problem: PROBLEM_CODE | null;
@@ -98,6 +120,8 @@ export interface ApiResponse<T> {
   headers?: Record<string, string>;
   duration?: number;
   response?: Response;
+  /** Set by the client on every response it produces; optional only for hand-built responses. */
+  request?: ResolvedRequest;
 }
 
 export interface ApiOkResponse<T> extends ApiResponse<T> {
@@ -128,6 +152,8 @@ export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
   totalTimeout?: number | false;
   /** Required by fetch for ReadableStream bodies; set automatically when omitted. */
   duplex?: 'half';
+  /** Free-form data carried through interceptors and monitors; never sent. */
+  context?: Record<string, unknown>;
   baseURL?: string;
   /** Retry on failure. Number = attempt count shorthand; object for full control. */
   retry?: number | RetryConfig;
@@ -152,15 +178,15 @@ export type ResponseTransform = <T>(response: ApiResponse<T>) => void;
 export type AsyncResponseTransform = <T>(response: ApiResponse<T>) => Promise<void>;
 export type Monitor = <T>(response: ApiResponse<T>) => void;
 
-export interface InterceptorHandler<T> {
-  onFulfilled?: (value: T) => T | Promise<T>;
-  onRejected?: (error: unknown) => T | Promise<T>;
+export interface InterceptorHandler<T, R = T> {
+  onFulfilled?: (value: T) => R | Promise<R>;
+  onRejected?: (error: unknown) => R | Promise<R>;
 }
 
-export interface InterceptorManager<T> {
+export interface InterceptorManager<T, R = T> {
   use(
-    onFulfilled?: (value: T) => T | Promise<T>,
-    onRejected?: (error: unknown) => T | Promise<T>,
+    onFulfilled?: (value: T) => R | Promise<R>,
+    onRejected?: (error: unknown) => R | Promise<R>,
   ): number;
   eject(id: number): void;
   clear(): void;
@@ -175,7 +201,7 @@ export interface RefetchInstance {
    * Response interceptors run FIFO (first registered runs first).
    */
   interceptors: {
-    request: InterceptorManager<RequestConfig>;
+    request: InterceptorManager<RequestConfig, RequestInterceptorResult>;
     response: InterceptorManager<ApiResponse<unknown>>;
   };
 

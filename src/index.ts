@@ -50,10 +50,13 @@ export type {
   RefetchError,
   RefetchInstance,
   RequestConfig,
+  RequestInterceptorResult,
   RequestTransform,
+  ResolvedRequest,
   ResponseTransform,
   RetryConfig,
   RetryContext,
+  ShortCircuit,
 } from './types';
 export { isErrorResponse, isOkResponse, PROBLEM_CODE } from './types';
 export { buildQueryString, buildUrl } from './url';
