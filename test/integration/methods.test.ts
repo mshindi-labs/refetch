@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { QueryParams } from '../../src/index';
 import {
   create,
+  mergeHeaders,
   NetworkError,
   ParseError,
   PROBLEM_CODE,
+  type QueryParams,
   type RefetchInstance,
 } from '../../src/index';
 import { asError, asOk } from '../helpers/assert';
