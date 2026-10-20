@@ -36,7 +36,7 @@ This ensures only the workflow can publish.
 
 ## How a release happens
 
-1. Pull requests merge into `main` with Conventional Commit messages (`fix:`, `feat:`, `feat!:` / `BREAKING CHANGE:`).
+1. Pull requests are **squash-merged** into `main` with a Conventional Commit title (`fix:`, `feat:`, `feat!:`; put `BREAKING CHANGE:` or `Release-As:` footers in the PR description). Merge commits are disabled on the repository: with them release-please listed every change twice, once from the PR title and once from the inner commit.
 2. On every push to `main`, release-please creates or updates the PR titled `chore: release X.Y.Z` with the version bump in `package.json` / `package-lock.json` and the generated `CHANGELOG.md` entry.
 3. Review the notes. If they need more context, commit to the Release PR branch (the next push to `main` regenerates it, so do this right before merging) or add a follow-up docs commit after the release.
 4. Merge the Release PR. The workflow tags `vX.Y.Z`, publishes the GitHub release, checks out the tag, runs `npm ci` and `npm run ci`, then `npm publish --provenance --access public`.
@@ -66,10 +66,10 @@ If publishing failed after the release was created (transient npm or runner erro
 
 ## Known registry quirk: the stray 4.0.0
 
-A `4.0.0` was published by mistake on 2025-10-30 and cannot be removed (npm only allows unpublishing within 72 hours). Consequences:
+A `4.0.0` was published by mistake on 2025-10-30 and is deprecated. npm's policy would allow unpublishing it (no dependents, under 300 weekly downloads, a single maintainer), but the registry is immutable, so the version number can never be reused either way. Consequences:
 
 - The workflow publishes with an explicit `--tag latest`; without it npm fails with "Cannot implicitly apply the latest tag because previously published version 4.0.0 is higher".
-- Run `npm deprecate @mshindi-labs/refetch@4.0.0 "Published by mistake; use 3.x"` once from a logged-in maintainer account so `npm install @mshindi-labs/refetch@4` warns instead of installing it.
+- It is deprecated (`npm deprecate @mshindi-labs/refetch@4.0.0 "Published by mistake; use 3.x"`), so `npm install @mshindi-labs/refetch@4` warns instead of installing it silently.
 - The first real v4 release must be **4.0.1 or higher** (for example `Release-As: 4.1.0`), because 4.0.0 is taken.
 
 ## Troubleshooting
