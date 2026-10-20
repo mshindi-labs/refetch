@@ -229,7 +229,7 @@ Closes #42
 ### Pull Request Process
 
 1. Push your branch and open a PR against `main`
-2. PR title: same format as commit messages
+2. PR title: same format as commit messages. Pull requests are **squash-merged**, so the title becomes the commit subject on `main` and, for `feat`/`fix`/`perf`, the changelog line
 3. PR description should include:
    - What changed and why
    - How you tested it
