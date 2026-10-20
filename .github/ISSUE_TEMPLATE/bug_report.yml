@@ -1,0 +1,47 @@
+name: Bug report
+description: Something behaves differently from the documentation
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: refetch version
+      placeholder: "3.2.0"
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and version
+      placeholder: "Node 24.5 / Bun 1.4 / Deno 2.9 / Chrome 142 / Safari 26"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A short snippet using `create()` plus the server behaviour needed (a `node:http` server, a public URL, or the response headers/body).
+      render: typescript
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include `response.problem`, `response.error` and `response.originalError` when the issue is about an error path.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues
+          required: true
+        - label: I can reproduce this on the latest 3.x release
