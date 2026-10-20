@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { headersToObject, mergeHeaders } from '../../src/headers';
+import { headersToObject, mergeHeaders, setRequestHeader } from '../../src/headers';
 
 describe('mergeHeaders', () => {
   it('accepts plain objects, Headers instances and tuple arrays', () => {
@@ -26,6 +26,30 @@ describe('mergeHeaders', () => {
     merged.set('a', '2');
     expect(source.get('a')).toBe('1');
     expect(merged).toBeInstanceOf(Headers);
+  });
+});
+
+describe('setRequestHeader', () => {
+  it('returns a new config with the header set, whatever shape the headers had', () => {
+    const shapes: (HeadersInit | undefined)[] = [
+      { 'X-A': '1' },
+      new Headers({ 'X-A': '1' }),
+      [['X-A', '1']],
+      undefined,
+    ];
+    for (const headers of shapes) {
+      const config = { url: '/x', headers };
+      const next = setRequestHeader(config, 'Authorization', 'Bearer t');
+      expect(next).not.toBe(config);
+      expect(config.headers).toBe(headers);
+      expect(mergeHeaders(next.headers).get('authorization')).toBe('Bearer t');
+      if (headers) expect(mergeHeaders(next.headers).get('x-a')).toBe('1');
+    }
+  });
+
+  it('overrides an existing header case-insensitively', () => {
+    const next = setRequestHeader({ headers: { authorization: 'old' } }, 'Authorization', 'new');
+    expect(next.headers).toEqual({ authorization: 'new' });
   });
 });
 

@@ -45,6 +45,31 @@ describe('request interceptors', () => {
     expect(result.data.headers['x-second']).toBe('2');
   });
 
+  it('receive the merged instance and request headers as a lower-cased plain object', async () => {
+    const local = create({ baseURL: server.baseURL, headers: { 'X-Instance': 'i' } });
+    let seen: unknown;
+    local.interceptors.request.use((config) => {
+      seen = config.headers;
+      return config;
+    });
+    await local.get('/json', undefined, { headers: new Headers({ 'X-Request': 'r' }) });
+    expect(seen).toEqual({ 'x-instance': 'i', 'x-request': 'r' });
+  });
+
+  it('can drop an instance header for one request', async () => {
+    const local = create({
+      baseURL: server.baseURL,
+      headers: { Authorization: 'Bearer instance' },
+    });
+    local.interceptors.request.use((config) => {
+      const headers = { ...(config.headers as Record<string, string>) };
+      delete headers.authorization;
+      return { ...config, headers };
+    });
+    const echo = asOk(await local.get<EchoPayload>('/echo')).data;
+    expect(echo.headers.authorization).toBeUndefined();
+  });
+
   it('support async handlers', async () => {
     const local = create({ baseURL: server.baseURL });
     local.interceptors.request.use(async (config) => {

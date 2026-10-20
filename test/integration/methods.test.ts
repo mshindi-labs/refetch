@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { QueryParams } from '../../src/index';
 import {
   create,
   NetworkError,
@@ -41,6 +42,46 @@ describe('HTTP methods', () => {
   it('GET appends params to the query string', async () => {
     const result = asOk(await api.get<EchoPayload>('/echo', { page: 2, tags: ['a', 'b'] }));
     expect(result.data.url).toBe('/echo?page=2&tags=a&tags=b');
+  });
+
+  it('accepts URLSearchParams and tuple params and serialises Dates as ISO 8601', async () => {
+    const search = asOk(await api.get<EchoPayload>('/echo', new URLSearchParams({ q: 'x y' })));
+    expect(search.data.url).toBe('/echo?q=x+y');
+    const tuples = asOk(
+      await api.get<EchoPayload>('/echo', [
+        ['a', 1],
+        ['a', 2],
+      ]),
+    );
+    expect(tuples.data.url).toBe('/echo?a=1&a=2');
+    const dated = asOk(await api.get<EchoPayload>('/echo', { since: new Date(0) }));
+    expect(dated.data.url).toBe('/echo?since=1970-01-01T00%3A00%3A00.000Z');
+  });
+
+  it('rejects nested object params with a clear error instead of sending [object Object]', async () => {
+    const result = asError(await api.get('/echo', { filter: { a: 1 } }));
+    expect(result.originalError).toBeInstanceOf(TypeError);
+    expect(result.originalError?.message).toContain('filter');
+    expect(server.hits('/echo')).toBe(0);
+  });
+
+  it('uses paramsSerializer from the instance or the request', async () => {
+    const bracket = (params: QueryParams) =>
+      Object.entries(params as Record<string, unknown>)
+        .flatMap(([key, value]) =>
+          Array.isArray(value) ? value.map((item) => `${key}[]=${item}`) : [`${key}=${value}`],
+        )
+        .join('&');
+    const local = create({ baseURL: server.baseURL, paramsSerializer: bracket });
+    expect(asOk(await local.get<EchoPayload>('/echo', { tags: ['a', 'b'] })).data.url).toBe(
+      '/echo?tags[]=a&tags[]=b',
+    );
+    const perRequest = await local.get<EchoPayload>(
+      '/echo',
+      { tags: ['a'] },
+      { paramsSerializer: () => 'x=1' },
+    );
+    expect(asOk(perRequest).data.url).toBe('/echo?x=1');
   });
 
   it('POST sends JSON bodies with application/json', async () => {

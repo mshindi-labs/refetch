@@ -10,7 +10,7 @@ export {
   TimeoutError,
 } from './errors';
 export { fetchWithTimeout } from './fetch';
-export { headersToObject, mergeHeaders } from './headers';
+export { headersToObject, mergeHeaders, setRequestHeader } from './headers';
 export {
   withAuth,
   withBaseURL,
@@ -40,6 +40,8 @@ export type {
   InterceptorHandler,
   InterceptorManager,
   Monitor,
+  ParamsSerializer,
+  QueryParams,
   RefetchConfig,
   RefetchError,
   RefetchInstance,
