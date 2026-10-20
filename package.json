@@ -34,8 +34,17 @@
   ],
   "scripts": {
     "build": "tsup",
-    "prepublishOnly": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "size": "size-limit",
+    "check:package": "attw --pack . --ignore-rules false-esm no-resolution && publint",
+    "smoke": "node scripts/smoke.mjs",
+    "ci": "npm run lint && npm run typecheck && npm run build && npm run test:coverage && npm run check:package && npm run size && npm run smoke",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "fetch",
@@ -60,7 +69,15 @@
   },
   "type": "module",
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.5.15",
+    "@size-limit/preset-small-lib": "^14.2.0",
+    "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.0.5",
+    "publint": "^0.3.25",
+    "size-limit": "^14.2.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
   }
 }
