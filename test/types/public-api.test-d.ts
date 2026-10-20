@@ -11,6 +11,7 @@ import {
   type RefetchError,
   type RefetchInstance,
   type RequestConfig,
+  type RetryConfig,
 } from '../../src/index';
 
 interface User {
@@ -85,6 +86,16 @@ describe('public API types', () => {
       ApiResponse<User>
     >();
     expectTypeOf(api.get<User>('/u', [['a', 1]])).resolves.toEqualTypeOf<ApiResponse<User>>();
+  });
+
+  it('types the additive retry options', () => {
+    expectTypeOf<RetryConfig['backoff']>().toEqualTypeOf<
+      'fixed' | 'linear' | 'exponential' | undefined
+    >();
+    expectTypeOf<RetryConfig['onRetry']>().toEqualTypeOf<
+      ((attempt: number, response: ApiResponse<unknown>, delay: number) => void) | undefined
+    >();
+    expectTypeOf<RetryConfig['methods']>().toEqualTypeOf<string[] | undefined>();
   });
 
   it('exposes RefetchError as a discriminated union on kind', () => {

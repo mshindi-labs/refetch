@@ -37,7 +37,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 | `response.ts` | `parseResponseBody`, `normalizeSuccessResponse`, `normalizeErrorResponse` |
 | `fetch.ts` | `resolveTimeout`, `createAttemptSignal` (caller signal + extra signals + timeout via `AbortSignal.any`, listener fallback), `fetchWithTimeout` |
 | `interceptors.ts` | `createInterceptorManager` — Map-based, auto-increment IDs, `getAll()` |
-| `retry.ts` | `normalizeRetryConfig`, `getRetryDelay`, `shouldRetry`, `sleep` |
+| `retry.ts` | `normalizeRetryConfig`, `getRetryDelay`, `exponentialBackoff`, `retryAfterDelay`, `shouldRetry`, `sleep` (no runtime imports) |
 | `middleware.ts` | `withAuth`, `withTimeout`, `withHeaders`, `withBaseURL`, `withLogging` |
 | `pipe.ts` | `pipe()` HOF |
 | `refetch.ts` | `create()` factory — pipeline, retry loop, stream(), transform aliases |
@@ -115,13 +115,16 @@ Request interceptors are **reversed** before execution (LIFO). Response intercep
 ```
 request interceptors → once
 do {
-  if (attempt > 0) await sleep(delay, callSignal); onRetry?.(attempt, lastResponse)   // abortable: cancel/total timeout ends the call
+  if (attempt > 0) {
+    delay = retryAfterDelay(lastResponse) ?? getRetryDelay(config, attempt)   // server timing wins; stop if > maxRetryAfter (60 s default); delays clamp to 2^31-1 ms
+    onRetry?.(attempt, lastResponse, delay); await sleep(delay, callSignal)      // abortable: cancel/total timeout ends the call
+  }
   lastResponse = await executeSingleRequest(config, startTime)
   attempt++
 } while (retryConfig && attempt < retryConfig.attempts && shouldRetry(lastResponse, retryConfig))
 ```
 
-Default non-retryable status codes: `{400, 401, 403, 404, 422}`.
+Default non-retryable status codes: `{400, 401, 403, 404, 422}`; `statusCodes` replaces that set with an allow-list, `methods` restricts by HTTP method, `condition` overrides everything except cancels and total-timeout expiries. Delays: `delay` × `backoff` (`fixed` | `linear` | `exponential`) capped by `maxDelay`, optionally jittered; `exponentialBackoff()` builds a `delay` function. Phase B (#11, v4) changes the defaults to idempotent methods and an explicit status list.
 
 ### Error Classification (`errors.ts`)
 

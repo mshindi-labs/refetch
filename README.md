@@ -208,14 +208,37 @@ const api = create({ baseURL: 'https://api.example.com', retry: 3 });
 const response = await api.get('/data', undefined, {
   retry: {
     attempts: 4,
-    delay: (attempt) => attempt * 500,            // 500ms, 1s, 1.5s
-    condition: (r) => !r.ok && r.status !== 404,  // skip retry on 404
-    onRetry: (attempt, last) => console.warn('Retry', attempt, last.status),
+    delay: 300,                 // base delay in ms
+    backoff: 'exponential',     // 300ms, 600ms, 1.2s …
+    jitter: true,               // each delay becomes random in [0, delay]
+    maxDelay: 5_000,
+    methods: ['GET', 'PUT'],    // only retry idempotent calls
+    statusCodes: [408, 429, 500, 502, 503, 504],
+    maxRetryAfter: 30_000,      // give up if the server asks for longer
+    onRetry: (attempt, last, delay) => console.warn('Retry', attempt, last.status, 'in', delay),
   },
 });
+
+// Or hand the delay function the standard formula
+import { exponentialBackoff } from '@mshindi-labs/refetch/retry';
+await api.get('/data', undefined, { retry: { attempts: 5, delay: exponentialBackoff({ base: 200, jitter: true }) } });
 ```
 
-**Default condition:** retry on any non-ok response except status codes 400, 401, 403, 404, 422.
+| Option | Default | Meaning |
+|---|---|---|
+| `attempts` | – | total attempts including the first |
+| `delay` | `0` | base delay in ms, or `(attempt) => ms` (then `backoff`/`jitter`/`maxDelay` are not applied) |
+| `backoff` | `'fixed'` | `'linear'` multiplies by the attempt, `'exponential'` doubles per attempt |
+| `jitter` | `false` | full jitter in `[0, delay]` |
+| `maxDelay` | – | cap for computed delays |
+| `respectRetryAfter` | `true` | wait for `Retry-After` (seconds or HTTP-date) or `RateLimit-Reset` / `X-RateLimit-Reset` instead of the computed delay; never jittered |
+| `maxRetryAfter` | `60_000` | stop retrying when the server asks for longer than this (caps hostile or absurd `Retry-After` values) |
+| `methods` | all | only retry these methods (case-insensitive) |
+| `statusCodes` | see below | only retry these status codes; transport failures stay retryable |
+| `condition` | see below | full override: return `true` to retry |
+| `onRetry` | – | called before each delay with `(attempt, lastResponse, delayMs)` |
+
+**Default condition:** retry on any non-ok response except status codes 400, 401, 403, 404, 422 and parse failures. Cancelled requests, `totalTimeout` expiries and requests with a one-shot `ReadableStream` body are never retried. In v4 the defaults move to idempotent methods and an explicit status allow-list; set `methods` and `statusCodes` today to opt in.
 
 Request interceptors run **once** before the retry loop. Response interceptors run **per attempt**.
 

@@ -5,7 +5,14 @@ import { type AttemptSignal, createAttemptSignal, resolveTimeout } from './fetch
 import { headersToObject, mergeHeaders } from './headers';
 import { createInterceptorManager } from './interceptors';
 import { normalizeErrorResponse, normalizeSuccessResponse, parseResponseBody } from './response';
-import { getRetryDelay, normalizeRetryConfig, shouldRetry, sleep } from './retry';
+import {
+  DEFAULT_MAX_RETRY_AFTER,
+  getRetryDelay,
+  normalizeRetryConfig,
+  retryAfterDelay,
+  shouldRetry,
+  sleep,
+} from './retry';
 import type {
   ApiResponse,
   AsyncRequestTransform,
@@ -299,8 +306,20 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
 
       do {
         if (attempt > 0 && retryConfig) {
+          const serverDelay =
+            retryConfig.respectRetryAfter === false ? undefined : retryAfterDelay(lastResponse);
+          // A server asking for longer than maxRetryAfter (60 s by default) means "come back
+          // later", not "retry now"; the cap also keeps a hostile header from parking the call.
+          if (
+            serverDelay !== undefined &&
+            serverDelay > (retryConfig.maxRetryAfter ?? DEFAULT_MAX_RETRY_AFTER)
+          ) {
+            break;
+          }
+          const delay = serverDelay ?? getRetryDelay(retryConfig, attempt);
+          retryConfig.onRetry?.(attempt, lastResponse, delay);
           try {
-            await sleep(getRetryDelay(retryConfig, attempt), call.signal);
+            await sleep(delay, call.signal);
           } catch (reason) {
             lastResponse = await finalize(
               normalizeErrorResponse<T>(
@@ -311,7 +330,6 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
             );
             break;
           }
-          retryConfig.onRetry?.(attempt, lastResponse);
         }
         lastResponse = await executeSingleRequest<T>(config, startTime, call.signal);
         attempt++;
@@ -321,7 +339,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         !call.signal.aborted &&
         // A ReadableStream body is consumed by the first attempt and cannot be replayed.
         !isStream(config.data) &&
-        shouldRetry(lastResponse, retryConfig)
+        shouldRetry(lastResponse, retryConfig, { method: config.method })
       );
 
       return lastResponse;
