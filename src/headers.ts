@@ -29,3 +29,17 @@ export function headersToObject(headers: Headers): Record<string, string> {
   });
   return obj;
 }
+
+/**
+ * Returns a copy of `config` with `name` set to `value`, whatever `HeadersInit` shape
+ * `config.headers` has. The returned headers are a plain object with lower-cased keys.
+ */
+export function setRequestHeader<T extends { headers?: HeadersInit }>(
+  config: T,
+  name: string,
+  value: string,
+): T {
+  const headers = mergeHeaders(config.headers);
+  headers.set(name, value);
+  return { ...config, headers: headersToObject(headers) };
+}

@@ -22,13 +22,34 @@ describe('buildQueryString', () => {
     expect(buildQueryString({ n: 0, f: false })).toBe('n=0&f=false');
   });
 
-  // Known bug #9 — flip `it.fails` to `it` when fixed.
-  it.fails('serialises Date values as ISO 8601 (known bug #9)', () => {
+  it('serialises Date values as ISO 8601', () => {
     expect(buildQueryString({ d: new Date(0) })).toBe('d=1970-01-01T00%3A00%3A00.000Z');
   });
 
-  it.fails('never emits "[object Object]" for nested objects (known bug #9)', () => {
-    expect(buildQueryString({ o: { a: 1 } })).not.toContain('object+Object');
+  it('throws a TypeError naming the key for nested objects', () => {
+    expect(() => buildQueryString({ o: { a: 1 } })).toThrow(TypeError);
+    expect(() => buildQueryString({ o: { a: 1 } })).toThrow(/"o"/);
+  });
+
+  it('accepts URLSearchParams and tuple arrays', () => {
+    expect(buildQueryString(new URLSearchParams({ a: '1', b: 'x y' }))).toBe('a=1&b=x+y');
+    expect(
+      buildQueryString([
+        ['a', 1],
+        ['a', 2],
+        ['d', new Date(0)],
+      ]),
+    ).toBe('a=1&a=2&d=1970-01-01T00%3A00%3A00.000Z');
+  });
+
+  it('serialises Dates inside arrays and skips null or undefined items', () => {
+    expect(buildQueryString({ when: [new Date(0), null, undefined, 'x'] })).toBe(
+      'when=1970-01-01T00%3A00%3A00.000Z&when=x',
+    );
+  });
+
+  it('stringifies bigint values', () => {
+    expect(buildQueryString({ id: 10n })).toBe('id=10');
   });
 });
 
@@ -55,6 +76,13 @@ describe('buildUrl', () => {
   it('returns the path unchanged when there is no baseURL', () => {
     expect(buildUrl(undefined, '/x')).toBe('/x');
     expect(buildUrl('', '/x', { a: 1 })).toBe('/x?a=1');
+  });
+
+  it('uses a custom serializer when one is given', () => {
+    expect(buildUrl('https://a.test', '/x', { a: [1, 2] }, () => 'custom=1')).toBe(
+      'https://a.test/x?custom=1',
+    );
+    expect(buildUrl('https://a.test', '/x?y=2', { a: 1 }, () => '')).toBe('https://a.test/x?y=2');
   });
 
   it('throws a TypeError for a non-string url', () => {

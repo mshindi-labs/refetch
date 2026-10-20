@@ -58,8 +58,7 @@ describe('middleware over the wire', () => {
     expect(asOk(await local.get('/json')).data).toEqual({ ok: true });
   });
 
-  // Known bug #8 — per-request Headers instances are dropped by withAuth.
-  it.fails('withAuth keeps per-request Headers instances (known bug #8)', async () => {
+  it('withAuth keeps per-request Headers instances', async () => {
     const local = pipe(
       create({ baseURL: server.baseURL }),
       withAuth(() => 'T'),

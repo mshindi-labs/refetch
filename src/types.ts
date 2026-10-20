@@ -48,6 +48,15 @@ export interface RetryConfig {
   onRetry?: (attempt: number, response: ApiResponse<unknown>) => void;
 }
 
+/**
+ * Query parameters: a plain object (arrays repeat the key, Dates become ISO 8601 strings,
+ * `null`/`undefined` are omitted, nested objects throw), a `URLSearchParams`, or key/value tuples.
+ */
+export type QueryParams = Record<string, unknown> | URLSearchParams | Array<[string, unknown]>;
+
+/** Custom query serializer; returns the query string without the leading `?`. */
+export type ParamsSerializer = (params: QueryParams) => string;
+
 export interface ApiResponse<T> {
   ok: boolean;
   problem: PROBLEM_CODE | null;
@@ -77,7 +86,9 @@ export interface ApiErrorResponse<T> extends ApiResponse<T> {
 export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
   url?: string;
   method?: string;
-  params?: Record<string, unknown>;
+  params?: QueryParams;
+  /** Replaces the default query serialisation for this request. */
+  paramsSerializer?: ParamsSerializer;
   data?: unknown;
   /** Per-attempt timeout in ms (covers headers and body). `0` or `false` disables it. */
   timeout?: number | false;
@@ -97,6 +108,8 @@ export interface RefetchConfig extends Omit<RequestInit, 'method' | 'body'> {
   timeout?: number | false;
   /** Default deadline for a whole call including retries. Disabled by default. */
   totalTimeout?: number | false;
+  /** Replaces the default query serialisation for every request. */
+  paramsSerializer?: ParamsSerializer;
   /** Instance-wide retry default. Overridden by per-request `retry`. */
   retry?: number | RetryConfig;
 }
@@ -136,7 +149,7 @@ export interface RefetchInstance {
 
   get<T = unknown>(
     url: string,
-    params?: Record<string, unknown>,
+    params?: QueryParams,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
@@ -160,25 +173,25 @@ export interface RefetchInstance {
 
   delete<T = unknown>(
     url: string,
-    params?: Record<string, unknown>,
+    params?: QueryParams,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   head<T = unknown>(
     url: string,
-    params?: Record<string, unknown>,
+    params?: QueryParams,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   link<T = unknown>(
     url: string,
-    params?: Record<string, unknown>,
+    params?: QueryParams,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
   unlink<T = unknown>(
     url: string,
-    params?: Record<string, unknown>,
+    params?: QueryParams,
     config?: RequestConfig,
   ): Promise<ApiResponse<T>>;
 
@@ -190,7 +203,7 @@ export interface RefetchInstance {
    */
   stream<T = Uint8Array>(
     url: string,
-    params?: Record<string, unknown>,
+    params?: QueryParams,
     config?: RequestConfig,
   ): Promise<ApiResponse<ReadableStream<T>>>;
 

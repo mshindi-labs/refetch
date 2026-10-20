@@ -6,6 +6,7 @@ import {
   create,
   isErrorResponse,
   isOkResponse,
+  type QueryParams,
   type RefetchConfig,
   type RefetchError,
   type RefetchInstance,
@@ -77,6 +78,13 @@ describe('public API types', () => {
     expectTypeOf<RequestConfig['totalTimeout']>().toEqualTypeOf<number | false | undefined>();
     expectTypeOf<RefetchConfig['totalTimeout']>().toEqualTypeOf<number | false | undefined>();
     expectTypeOf<RequestConfig['duplex']>().toEqualTypeOf<'half' | undefined>();
+    expectTypeOf<RequestConfig['paramsSerializer']>().toEqualTypeOf<
+      ((params: QueryParams) => string) | undefined
+    >();
+    expectTypeOf(api.get<User>('/u', new URLSearchParams())).resolves.toEqualTypeOf<
+      ApiResponse<User>
+    >();
+    expectTypeOf(api.get<User>('/u', [['a', 1]])).resolves.toEqualTypeOf<ApiResponse<User>>();
   });
 
   it('exposes RefetchError as a discriminated union on kind', () => {

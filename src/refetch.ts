@@ -2,7 +2,7 @@ import { getBodyContentType, prepareRequestBody, shouldHaveBody } from './body';
 import { DEFAULT_HEADERS } from './constants';
 import { CancelError, NetworkError, ParseError, TimeoutError } from './errors';
 import { type AttemptSignal, createAttemptSignal, resolveTimeout } from './fetch';
-import { mergeHeaders } from './headers';
+import { headersToObject, mergeHeaders } from './headers';
 import { createInterceptorManager } from './interceptors';
 import { normalizeErrorResponse, normalizeSuccessResponse, parseResponseBody } from './response';
 import { getRetryDelay, normalizeRetryConfig, shouldRetry, sleep } from './retry';
@@ -11,6 +11,7 @@ import type {
   AsyncRequestTransform,
   AsyncResponseTransform,
   Monitor,
+  QueryParams,
   RefetchConfig,
   RefetchInstance,
   RequestConfig,
@@ -24,6 +25,7 @@ const REFETCH_KEYS = [
   'url',
   'method',
   'params',
+  'paramsSerializer',
   'data',
   'timeout',
   'totalTimeout',
@@ -164,11 +166,12 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         config.baseURL || state.config.baseURL,
         config.url ?? '',
         config.params,
+        config.paramsSerializer,
       );
       const body = shouldHaveBody(method) ? prepareRequestBody(config.data) : undefined;
 
       // Always merge Accept from defaults; Content-Type is set per body type below
-      const headers = mergeHeaders(DEFAULT_HEADERS, state.config.headers, config.headers);
+      const headers = mergeHeaders(DEFAULT_HEADERS, config.headers);
       const bodyContentType = getBodyContentType(body);
       if (bodyContentType === null) {
         // FormData: browser must set Content-Type with multipart boundary
@@ -257,8 +260,12 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     if (shouldHaveBody(method)) {
       config.data = dataOrParams;
     } else {
-      config.params = dataOrParams as Record<string, unknown> | undefined;
+      config.params = dataOrParams as QueryParams | undefined;
     }
+
+    // Interceptors always see one shape: a lower-cased plain object with the instance headers
+    // merged in. Defaults (Accept) are applied at send time so they can still be overridden.
+    config.headers = headersToObject(mergeHeaders(state.config.headers, requestConfig.headers));
 
     // Validate up front so invalid values are programmer errors, not error responses.
     resolveTimeout(config.timeout, state.config.timeout);
@@ -413,6 +420,7 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       method: 'GET',
       params,
     };
+    mergedConfig.headers = headersToObject(mergeHeaders(state.config.headers, config.headers));
     resolveTimeout(mergedConfig.timeout, state.config.timeout);
 
     try {
@@ -429,8 +437,9 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       mergedConfig.baseURL || state.config.baseURL,
       mergedConfig.url || url,
       mergedConfig.params,
+      mergedConfig.paramsSerializer,
     );
-    const headers = mergeHeaders(DEFAULT_HEADERS, state.config.headers, mergedConfig.headers);
+    const headers = mergeHeaders(DEFAULT_HEADERS, mergedConfig.headers);
 
     // The timeout covers the wait for headers only; the caller's signal stays linked to the
     // body stream so an abort after headers still cancels the download.

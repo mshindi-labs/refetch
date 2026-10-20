@@ -1,3 +1,4 @@
+import { headersToObject, mergeHeaders, setRequestHeader } from './headers';
 import type { RefetchInstance, RequestConfig } from './types';
 
 type InstanceMiddleware = (instance: RefetchInstance) => RefetchInstance;
@@ -8,16 +9,9 @@ type InstanceMiddleware = (instance: RefetchInstance) => RefetchInstance;
  */
 export function withAuth(getToken: () => string | Promise<string>): InstanceMiddleware {
   return (instance) => {
-    instance.interceptors.request.use(async (config: RequestConfig) => {
-      const token = await getToken();
-      return {
-        ...config,
-        headers: {
-          ...(config.headers as Record<string, string> | undefined),
-          Authorization: `Bearer ${token}`,
-        },
-      };
-    });
+    instance.interceptors.request.use(async (config: RequestConfig) =>
+      setRequestHeader(config, 'Authorization', `Bearer ${await getToken()}`),
+    );
     return instance;
   };
 }
@@ -40,19 +34,9 @@ export function withTimeout(ms: number): InstanceMiddleware {
  */
 export function withHeaders(headers: HeadersInit): InstanceMiddleware {
   return (instance) => {
-    const entries =
-      headers instanceof Headers
-        ? Object.fromEntries(headers.entries())
-        : Array.isArray(headers)
-          ? Object.fromEntries(headers)
-          : (headers as Record<string, string>);
-
     instance.interceptors.request.use((config: RequestConfig) => ({
       ...config,
-      headers: {
-        ...(config.headers as Record<string, string> | undefined),
-        ...entries,
-      },
+      headers: headersToObject(mergeHeaders(config.headers, headers)),
     }));
     return instance;
   };

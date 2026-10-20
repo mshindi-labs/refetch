@@ -70,8 +70,14 @@ describe('withAuth', () => {
     expect(mergeHeaders(result.headers).get('x-foo')).toBe('bar');
   });
 
-  // Known bug #8 — Headers instances are lost by the object spread.
-  it.fails('keeps per-request headers given as a Headers instance (known bug #8)', async () => {
+  it('keeps per-request headers given as tuples', async () => {
+    const api = withAuth(() => 'T')(create());
+    const result = await runRequest(api, { url: '/x', headers: [['X-Foo', 'bar']] });
+    expect(mergeHeaders(result.headers).get('x-foo')).toBe('bar');
+    expect(mergeHeaders(result.headers).get('authorization')).toBe('Bearer T');
+  });
+
+  it('keeps per-request headers given as a Headers instance', async () => {
     const api = withAuth(() => 'T')(create());
     const result = await runRequest(api, { url: '/x', headers: new Headers({ 'X-Foo': 'bar' }) });
     expect(mergeHeaders(result.headers).get('x-foo')).toBe('bar');
