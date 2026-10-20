@@ -59,15 +59,16 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 1. HTTP method called (e.g., `api.get(url, params, config)`)
 2. Config merged: `{ ...state.config, ...requestConfig, url, method }`
 3. `shouldHaveBody` → assign `config.data` (body methods) or `config.params` (GET/HEAD/DELETE)
-4. **Request interceptors applied (LIFO)** — return-based, run **once before any retry**
+4. **Request interceptors applied (LIFO)** — return-based, run **once before any retry**; a throwing interceptor yields an error response (`UNKNOWN_ERROR` / `kind: 'unknown'`) instead of a rejection
 5. `normalizeRetryConfig` determines retry settings
 6. **Retry loop** (`do/while`):
    - `prepareRequestBody(config.data)` → `BodyInit | undefined`
    - `mergeHeaders(DEFAULT_HEADERS, instance, request)` → then `getBodyContentType` sets `Content-Type`
    - FormData: `headers.delete('Content-Type')` — browser manages multipart boundary
+   - `ReadableStream` body: `duplex: 'half'` is added unless `config.duplex` is set; such requests are never retried (one-shot body)
    - `buildUrl(baseURL, url, params)`
    - `fetch` with the attempt signal (caller signal + `totalTimeout` deadline + per-attempt timeout); the same signal bounds the body read, so timeouts and cancels during parsing surface as such
-   - `parseResponseBody` — content-type-aware (see below)
+   - `parseResponseBody` — content-type-aware (see below); throws `ParseError` for undecodable bodies. On a 2xx that becomes `PARSE_ERROR` / `kind: 'parse'` with `data` = raw text and status/headers kept; on a non-2xx the HTTP error wins and `data` is the raw text; a `TypeError` while reading (connection drop) becomes `NetworkError`
    - `normalizeSuccessResponse` or `normalizeErrorResponse` + `buildRefetchError`
    - **Response interceptors applied (FIFO)** — per attempt
    - Monitors notified (fire-and-forget)
@@ -88,7 +89,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 `parseResponseBody` routes by MIME type (stripped of parameters) from `Content-Type`:
 
 - 204 / 304 / `content-length: 0` → `null` immediately (no read)
-- `application/json` or `/+json` suffix (via `JSON_LIKE_RE`) → `response.json()`
+- `application/json` or `/+json` suffix (via `JSON_LIKE_RE`) → `response.text()` + `JSON.parse` (empty text → `null`, invalid → `ParseError` with the raw text)
 - `application/x-www-form-urlencoded` → `URLSearchParams` → `Record<string, string>`
 - `image/*`, `audio/*`, `video/*`, `application/pdf`, `application/zip`, Office docs, fonts → `response.blob()`
 - `text/*`, `application/xml`, `application/xhtml+xml` → `response.text()`
@@ -130,7 +131,7 @@ Default non-retryable status codes: `{400, 401, 403, 404, 422}`.
 - `CancelError` / `AbortError` → `{ kind: 'cancel', reason }` / `CANCEL_ERROR`
 - `NetworkError` (wraps the `TypeError` thrown by `fetch()`; extends `TypeError`; `code` read from the cause chain) → `{ kind: 'network' }`; `CONNECTION_ERROR` when `code` is a connection code (`ECONNREFUSED`, `ENOTFOUND`, …), else `NETWORK_ERROR`
 - Any non-2xx status (4xx, 5xx, and 1xx/3xx/0 under `redirect: 'manual'`) → `{ kind: 'http', status, statusText }`
-- `ParseError`-named errors → `{ kind: 'parse', contentType, cause }` (see #5)
+- `ParseError` (thrown by `parseResponseBody`; `contentType`, `raw`, `cause`) → `{ kind: 'parse', contentType, cause }` / `PARSE_ERROR`
 - Everything else → `{ kind: 'unknown', cause }`
 
 Classification is by origin first (abort reason, `fetch()` throwing) and by message only as a fallback for foreign errors.
@@ -148,7 +149,8 @@ Each HOF has type `(instance: RefetchInstance) => RefetchInstance`. They registe
 - `RefetchError` is defined in `types.ts`; `buildRefetchError` is in `errors.ts`
 - `stream()` returns `ApiResponse<ReadableStream<T>>` — no body parsing, no retry
 - Request interceptors run **once** before the retry loop; response interceptors run **per attempt**
-- Cancelled requests and `totalTimeout` expiries are never retried; `timeout: 0` / `false` disables the per-attempt timeout
+- Cancelled requests, `totalTimeout` expiries, parse failures (by default) and `ReadableStream`-bodied requests are never retried; `timeout: 0` / `false` disables the per-attempt timeout
+- `request()` and `stream()` never reject because of an interceptor: interceptor errors become error responses that still reach response interceptors and monitors
 - `src/retry.ts` has no runtime imports (keeps the `/retry` sub-path tiny)
 - FormData `Content-Type` must always be deleted — browser manages the boundary
 - `npm run lint`, `npm run typecheck` and `npm test` must pass before any commit
