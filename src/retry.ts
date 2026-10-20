@@ -29,6 +29,7 @@ export function shouldRetry(response: ApiResponse<unknown>, config: RetryConfig)
   if (isUnretryable(response)) return false;
   if (config.condition) return config.condition(response);
   if (response.ok) return false;
+  if ((response as Partial<ApiErrorResponse<unknown>>).error?.kind === 'parse') return false;
   if (response.status && DEFAULT_NON_RETRYABLE.has(response.status)) return false;
   return true;
 }

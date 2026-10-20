@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { create, NetworkError, PROBLEM_CODE, type RefetchInstance } from '../../src/index';
+import {
+  create,
+  NetworkError,
+  ParseError,
+  PROBLEM_CODE,
+  type RefetchInstance,
+} from '../../src/index';
 import { asError, asOk } from '../helpers/assert';
 import {
   closedBaseURL,
@@ -172,8 +178,7 @@ describe('headers and request bodies', () => {
     expect(bytes.data.body).toBe('hi');
   });
 
-  // Known bug #7 — fetch requires duplex: 'half' for stream bodies.
-  it.fails('sends ReadableStream bodies (known bug #7)', async () => {
+  it('sends ReadableStream bodies', async () => {
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode('hi'));
@@ -182,6 +187,21 @@ describe('headers and request bodies', () => {
     });
     const result = asOk(await api.post<EchoPayload>('/echo', stream));
     expect(result.data.body).toBe('hi');
+  });
+
+  it('accepts an explicit duplex and never retries a one-shot stream body', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('x'));
+        controller.close();
+      },
+    });
+    const result = await api.post('/flaky?key=stream-body&fails=10', stream, {
+      retry: { attempts: 3 },
+      duplex: 'half',
+    });
+    expect(result.status).toBe(500);
+    expect(server.hits('/flaky')).toBe(1);
   });
 });
 
@@ -220,10 +240,28 @@ describe('response parsing', () => {
     expect(asOk(await api.get('/text-json')).data).toBe('{"a":1}');
   });
 
-  // Known bug #5 — malformed JSON currently yields ok: true, data: null.
-  it.fails('reports malformed JSON on a 2xx as a parse error (known bug #5)', async () => {
+  it('reports malformed JSON on a 2xx as a parse error', async () => {
     const result = asError(await api.get('/bad-json'));
-    expect(result.error.kind).toBe('parse');
+    expect(result.problem).toBe(PROBLEM_CODE.PARSE_ERROR);
+    expect(result.error).toMatchObject({ kind: 'parse', contentType: 'application/json' });
+    expect(result.status).toBe(200);
+    expect(result.headers?.['content-type']).toBe('application/json');
+    expect(result.data).toBe('{not json');
+    expect(result.originalError).toBeInstanceOf(ParseError);
+  });
+
+  it('keeps the http error and the raw body when an error response is malformed', async () => {
+    const result = asError(await api.get('/bad-json-500'));
+    expect(result.problem).toBe(PROBLEM_CODE.SERVER_ERROR);
+    expect(result.error).toMatchObject({ kind: 'http', status: 500 });
+    expect(result.data).toBe('{not json');
+  });
+
+  it('reports a connection dropped while reading the body as a network error', async () => {
+    const result = asError(await api.get('/drop-body'));
+    expect(result.error.kind).toBe('network');
+    expect([PROBLEM_CODE.NETWORK_ERROR, PROBLEM_CODE.CONNECTION_ERROR]).toContain(result.problem);
+    expect(result.originalError).toBeInstanceOf(NetworkError);
   });
 });
 

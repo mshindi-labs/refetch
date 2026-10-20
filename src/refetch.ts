@@ -1,6 +1,6 @@
 import { getBodyContentType, prepareRequestBody, shouldHaveBody } from './body';
 import { DEFAULT_HEADERS } from './constants';
-import { CancelError, NetworkError, TimeoutError } from './errors';
+import { CancelError, NetworkError, ParseError, TimeoutError } from './errors';
 import { type AttemptSignal, createAttemptSignal, resolveTimeout } from './fetch';
 import { mergeHeaders } from './headers';
 import { createInterceptorManager } from './interceptors';
@@ -37,6 +37,14 @@ function toRequestInit(config: RequestConfig): RequestInit {
   const init: Record<string, unknown> = { ...config };
   for (const key of REFETCH_KEYS) delete init[key];
   return init as RequestInit;
+}
+
+function isStream(value: unknown): value is ReadableStream {
+  return typeof ReadableStream !== 'undefined' && value instanceof ReadableStream;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 /** Turns whatever aborted a signal into an Error the classifier understands. */
@@ -177,6 +185,8 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
           method,
           headers,
           body,
+          // fetch requires duplex for stream bodies (Node, Chromium); callers may override.
+          ...(isStream(body) && !config.duplex ? { duplex: 'half' as const } : {}),
           signal: attempt.signal,
         });
         transportFailed = false;
@@ -186,7 +196,25 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       const duration = Date.now() - startTime;
 
       // The same signal bounds the body read, so a timeout or cancel here surfaces as such.
-      const data = await parseResponseBody<T>(response);
+      let data: unknown;
+      try {
+        data = await parseResponseBody<T>(response);
+      } catch (error) {
+        if (attempt.signal.aborted) throw abortReasonToError(attempt.signal.reason);
+        if (error instanceof ParseError) {
+          // An unreadable error body must not mask the HTTP failure; keep the raw text instead.
+          if (!response.ok) {
+            data = error.raw;
+          } else {
+            const failure = normalizeErrorResponse<T>(error, response, duration);
+            failure.data = error.raw as T;
+            return await finalize(failure);
+          }
+        } else {
+          // A connection dropped mid-body is a transport failure, like a failed fetch().
+          throw error instanceof TypeError ? new NetworkError(error) : error;
+        }
+      }
       if (attempt.signal.aborted) throw abortReasonToError(attempt.signal.reason);
 
       let apiResponse: ApiResponse<T>;
@@ -240,8 +268,13 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
       'totalTimeout',
     );
 
-    // Request interceptors run once before any retry
-    config = await applyRequestInterceptors(config);
+    // Request interceptors run once before any retry. They never throw to the caller: a
+    // failing interceptor (e.g. a token fetch) produces an error response like any other failure.
+    try {
+      config = await applyRequestInterceptors(config);
+    } catch (error) {
+      return finalize(normalizeErrorResponse<T>(toError(error), undefined, Date.now() - startTime));
+    }
 
     const retryConfig = normalizeRetryConfig(config.retry ?? state.config.retry);
     const deadline = createDeadline(totalTimeout);
@@ -279,6 +312,8 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
         retryConfig !== null &&
         attempt < retryConfig.attempts &&
         !call.signal.aborted &&
+        // A ReadableStream body is consumed by the first attempt and cannot be replayed.
+        !isStream(config.data) &&
         shouldRetry(lastResponse, retryConfig)
       );
 
@@ -380,7 +415,15 @@ export function create(config: RefetchConfig = {}): RefetchInstance {
     };
     resolveTimeout(mergedConfig.timeout, state.config.timeout);
 
-    mergedConfig = await applyRequestInterceptors(mergedConfig);
+    try {
+      mergedConfig = await applyRequestInterceptors(mergedConfig);
+    } catch (error) {
+      return normalizeErrorResponse(
+        toError(error),
+        undefined,
+        Date.now() - startTime,
+      ) as ApiResponse<ReadableStream<T>>;
+    }
 
     const fullUrl = buildUrl(
       mergedConfig.baseURL || state.config.baseURL,

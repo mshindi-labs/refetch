@@ -6,6 +6,7 @@ export enum PROBLEM_CODE {
   CONNECTION_ERROR = 'CONNECTION_ERROR',
   NETWORK_ERROR = 'NETWORK_ERROR',
   CANCEL_ERROR = 'CANCEL_ERROR',
+  PARSE_ERROR = 'PARSE_ERROR',
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
 }
 
@@ -39,7 +40,8 @@ export interface RetryConfig {
   delay?: number | ((attempt: number) => number);
   /**
    * Return true to retry. Defaults to retrying on any non-ok response except
-   * 400/401/403/404/422. Cancelled requests and total-timeout expiries are never retried.
+   * 400/401/403/404/422 or a parse failure. Cancelled requests and total-timeout expiries are
+   * never retried, and requests whose body is a one-shot ReadableStream cannot be retried.
    */
   condition?: (response: ApiResponse<unknown>) => boolean;
   /** Called before each retry attempt. */
@@ -81,6 +83,8 @@ export interface RequestConfig extends Omit<RequestInit, 'body' | 'method'> {
   timeout?: number | false;
   /** Deadline for the whole call including retries and back-off. Disabled by default. */
   totalTimeout?: number | false;
+  /** Required by fetch for ReadableStream bodies; set automatically when omitted. */
+  duplex?: 'half';
   baseURL?: string;
   /** Retry on failure. Number = attempt count shorthand; object for full control. */
   retry?: number | RetryConfig;

@@ -67,6 +67,16 @@ describe('shouldRetry', () => {
     expect(shouldRetry(failed(undefined), { attempts: 3 })).toBe(true);
   });
 
+  it('does not retry parse errors by default but lets a condition opt in', () => {
+    const parseFailure: ApiResponse<unknown> & { error: unknown } = {
+      ...failed(200),
+      problem: PROBLEM_CODE.PARSE_ERROR,
+      error: { kind: 'parse', contentType: 'application/json', cause: new Error('bad') },
+    };
+    expect(shouldRetry(parseFailure, { attempts: 3 })).toBe(false);
+    expect(shouldRetry(parseFailure, { attempts: 3, condition: () => true })).toBe(true);
+  });
+
   it('defers entirely to a custom condition', () => {
     expect(shouldRetry(failed(404), { attempts: 3, condition: () => true })).toBe(true);
     expect(shouldRetry(failed(500), { attempts: 3, condition: () => false })).toBe(false);

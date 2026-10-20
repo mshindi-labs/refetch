@@ -1,5 +1,5 @@
 import { JSON_LIKE_RE } from './body';
-import { buildRefetchError, classifyProblem } from './errors';
+import { buildRefetchError, classifyProblem, ParseError } from './errors';
 import { headersToObject } from './headers';
 import type { ApiResponse } from './types';
 
@@ -36,42 +36,44 @@ export async function parseResponseBody<T>(
   const contentType = response.headers.get('content-type');
   const mimeType = contentType ? contentType.split(';')[0].trim().toLowerCase() : '';
 
-  try {
-    if (!mimeType) {
-      const text = await response.text();
-      return text || null;
-    }
-
-    // JSON: exact match or +json suffix (application/vnd.api+json, application/ld+json, etc.)
-    if (mimeType === 'application/json' || JSON_LIKE_RE.test(mimeType)) {
-      return (await response.json()) as T;
-    }
-
-    // URL-encoded form data → plain object
-    if (mimeType === 'application/x-www-form-urlencoded') {
-      const text = await response.text();
-      return Object.fromEntries(new URLSearchParams(text).entries()) as unknown as T;
-    }
-
-    // Binary types → Blob
-    if (BINARY_PREFIX_RE.test(mimeType) || BINARY_APP_TYPES.has(mimeType)) {
-      return await response.blob();
-    }
-
-    // Text types: text/*, application/xml, application/xhtml+xml
-    if (
-      mimeType.startsWith('text/') ||
-      mimeType === 'application/xml' ||
-      mimeType === 'application/xhtml+xml'
-    ) {
-      return await response.text();
-    }
-
-    // multipart/* and everything else: return as text
-    return await response.text();
-  } catch {
-    return null;
+  if (!mimeType) {
+    const text = await response.text();
+    return text || null;
   }
+
+  // JSON: exact match or +json suffix (application/vnd.api+json, application/ld+json, etc.)
+  if (mimeType === 'application/json' || JSON_LIKE_RE.test(mimeType)) {
+    const text = await response.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text) as T;
+    } catch (cause) {
+      throw new ParseError(mimeType, cause, text);
+    }
+  }
+
+  // URL-encoded form data → plain object
+  if (mimeType === 'application/x-www-form-urlencoded') {
+    const text = await response.text();
+    return Object.fromEntries(new URLSearchParams(text).entries()) as unknown as T;
+  }
+
+  // Binary types → Blob
+  if (BINARY_PREFIX_RE.test(mimeType) || BINARY_APP_TYPES.has(mimeType)) {
+    return await response.blob();
+  }
+
+  // Text types: text/*, application/xml, application/xhtml+xml
+  if (
+    mimeType.startsWith('text/') ||
+    mimeType === 'application/xml' ||
+    mimeType === 'application/xhtml+xml'
+  ) {
+    return await response.text();
+  }
+
+  // multipart/* and everything else: return as text
+  return await response.text();
 }
 
 export function normalizeSuccessResponse<T>(
