@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { QueryParams } from '../../src/index';
 import {
   create,
+  mergeHeaders,
   NetworkError,
   ParseError,
   PROBLEM_CODE,
+  type QueryParams,
   type RefetchInstance,
 } from '../../src/index';
 import { asError, asOk } from '../helpers/assert';
@@ -143,6 +144,78 @@ describe('HTTP methods', () => {
   it('absolute URLs bypass baseURL', async () => {
     const elsewhere = create({ baseURL: 'http://127.0.0.1:1' });
     expect(asOk(await elsewhere.get(`${server.baseURL}/json`)).data).toEqual({ ok: true });
+  });
+});
+
+describe('response.request', () => {
+  it('describes the request as sent on success', async () => {
+    const result = asOk(
+      await api.post<EchoPayload, { n: number }>(
+        '/echo',
+        { n: 1 },
+        { params: { q: 'x' }, context: { tag: 't' } },
+      ),
+    );
+    expect(result.request).toMatchObject({
+      url: `${server.baseURL}/echo?q=x`,
+      method: 'POST',
+      attempt: 1,
+      body: { n: 1 },
+    });
+    expect(result.request?.headers).toMatchObject({
+      accept: 'application/json',
+      'content-type': 'application/json',
+    });
+    expect(result.request?.config).toMatchObject({
+      url: '/echo',
+      method: 'POST',
+      context: { tag: 't' },
+    });
+  });
+
+  it('redacts credential headers in the snapshot but keeps the replayable config intact', async () => {
+    const result = asOk(
+      await api.get<EchoPayload>('/echo', undefined, {
+        headers: {
+          Authorization: 'Bearer secret',
+          Cookie: 'sid=1',
+          'X-Api-Key': 'k',
+          'X-Trace': 't',
+        },
+      }),
+    );
+    expect(result.request?.headers).toMatchObject({
+      authorization: '[redacted]',
+      cookie: '[redacted]',
+      'x-api-key': '[redacted]',
+      'x-trace': 't',
+    });
+    expect(mergeHeaders(result.request?.config.headers).get('authorization')).toBe('Bearer secret');
+    expect(result.data.headers.authorization).toBe('Bearer secret');
+  });
+
+  it('is present on http and transport failures', async () => {
+    const http = asError(await api.get('/status/500'));
+    expect(http.request).toMatchObject({
+      url: `${server.baseURL}/status/500`,
+      method: 'GET',
+      attempt: 1,
+    });
+    const dead = create({ baseURL: await closedBaseURL() });
+    const network = asError(await dead.get('/x', { a: 1 }));
+    expect(network.request?.url).toMatch(/\/x\?a=1$/);
+    expect(network.request?.method).toBe('GET');
+  });
+
+  it('counts attempts across retries', async () => {
+    const attempts: (number | undefined)[] = [];
+    const local = create({ baseURL: server.baseURL });
+    local.addMonitor((response) => {
+      attempts.push(response.request?.attempt);
+    });
+    const result = asOk(await local.get('/flaky?key=attempts&fails=2', undefined, { retry: 3 }));
+    expect(result.request?.attempt).toBe(3);
+    expect(attempts).toEqual([1, 2, 3]);
   });
 });
 

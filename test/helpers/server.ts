@@ -158,6 +158,9 @@ export async function startTestServer(): Promise<TestServer> {
         }
         return json(res, 200, { attempt });
       }
+      case '/needs-token':
+        if (req.headers.authorization !== 'Bearer fresh') return json(res, 401, { error: 'stale' });
+        return json(res, 200, { secret: true });
       case '/redirect':
         res.writeHead(301, { location: '/json' });
         return res.end();
