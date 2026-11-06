@@ -115,7 +115,7 @@
     "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.5.15",
     "@size-limit/preset-small-lib": "^14.2.0",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^5.0.5",
     "publint": "^0.3.25",
     "size-limit": "^14.2.0",
