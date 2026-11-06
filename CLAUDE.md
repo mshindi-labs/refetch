@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ```bash
-npm run build         # tsup — produces dist/ (ESM + CJS + .d.ts for 4 entry points)
+npm run build         # tsdown (Rolldown) — produces dist/ (ESM + CJS + .d.ts/.d.cts for 4 entry points; needs Node ≥ 22.18)
 npm run typecheck     # tsc --noEmit for src/ and for the test suite
 npm test              # Vitest: unit + integration (real node:http server) + type tests
 npm run test:coverage # same, with V8 coverage thresholds (80 % lines)
@@ -45,7 +45,7 @@ Tests live in `test/` (layout and conventions in CONTRIBUTING.md "Testing Guidel
 
 `utils.ts` does not exist — it was dissolved into the six utility modules above.
 
-### Build Entry Points (`tsup.config.ts`)
+### Build Entry Points (`tsdown.config.ts`)
 
 | Entry | Sub-path |
 |-------|----------|

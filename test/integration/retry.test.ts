@@ -161,7 +161,7 @@ describe('retry', () => {
     });
     const finished = Date.now();
     expect(calls).toEqual([expect.objectContaining({ attempt: 1, delay: 150, status: 500 })]);
-    expect(finished - calls[0].at).toBeGreaterThanOrEqual(140);
+    expect(finished - (calls[0]?.at ?? 0)).toBeGreaterThanOrEqual(140);
   });
 
   it('does not retry methods outside the allow-list', async () => {

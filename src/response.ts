@@ -34,7 +34,7 @@ export async function parseResponseBody<T>(
   if (response.headers.get('content-length') === '0') return null;
 
   const contentType = response.headers.get('content-type');
-  const mimeType = contentType ? contentType.split(';')[0].trim().toLowerCase() : '';
+  const mimeType = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
 
   if (!mimeType) {
     const text = await response.text();

@@ -186,7 +186,7 @@ describe('fetchWithTimeout', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     await fetchWithTimeout('http://x', { timeout: 50, method: 'POST' });
-    const [, init] = fetchMock.mock.calls[0];
+    const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(init?.method).toBe('POST');
     expect(init && 'timeout' in init).toBe(false);

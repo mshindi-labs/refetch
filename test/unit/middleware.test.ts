@@ -93,14 +93,14 @@ describe('withLogging', () => {
     expect(logger.log).toHaveBeenCalledWith('[refetch] → POST /x');
 
     const [handler] = responseHandlers(api);
-    await handler.onFulfilled?.({
+    await handler?.onFulfilled?.({
       ok: true,
       problem: null,
       originalError: null,
       status: 200,
       duration: 5,
     });
-    await handler.onFulfilled?.({
+    await handler?.onFulfilled?.({
       ok: false,
       problem: PROBLEM_CODE.SERVER_ERROR,
       originalError: null,
